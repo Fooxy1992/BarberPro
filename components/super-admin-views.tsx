@@ -78,7 +78,7 @@ interface Ticket {
 
 export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsProps) {
   // Sidebar tab state
-  const [activeTab, setActiveTab] = useState<'shops' | 'revenue' | 'subscriptions' | 'support' | 'settings'>('shops');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'shops' | 'subscriptions' | 'invites' | 'revenue' | 'support' | 'logs' | 'users' | 'settings' | 'monitor'>('dashboard');
   
   // Settings view sub-tab
   const [settingsTab, setSettingsTab] = useState<'general' | 'security' | 'billing' | 'notifications'>('general');
@@ -232,6 +232,13 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
     stripeConnected: true
   });
 
+  // --- STATE FOR INVITES ---
+  const [invites, setInvites] = useState([
+    { id: 'inv-u9k2', link: 'barberpro-pi-pearl.vercel.app/onboard/u9k2', status: 'Active', expires: '2026-06-15', limit: 3, used: 1 },
+    { id: 'inv-b44c', link: 'barberpro-pi-pearl.vercel.app/onboard/b44c', status: 'Expired', expires: '2026-05-01', limit: 1, used: 0 },
+  ]);
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+
   // Derived properties for stats summary
   const filteredShops = useMemo(() => {
     return shops.filter(shop => {
@@ -347,6 +354,16 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
     triggerToast('Configuração global da plataforma BarberPro salva com sucesso na nuvem!');
   };
 
+  const handleCreateInvite = () => {
+    const newId = `inv-${Math.floor(1000 + Math.random() * 9000).toString(16)}`;
+    setInvites([
+      { id: newId, link: `barberpro-pi-pearl.vercel.app/onboard/${newId}`, status: 'Active', expires: '2026-12-31', limit: 1, used: 0 },
+      ...invites
+    ]);
+    setIsInviteModalOpen(false);
+    triggerToast('Novo convite de onboarding gerado com sucesso!');
+  };
+
   return (
     <div className="flex bg-[#131313] text-[#e5e2e1] h-screen select-none font-sans overflow-hidden">
       {/* Sidebar Shell */}
@@ -366,70 +383,125 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
         </div>
 
         {/* Sidebar Navigation */}
-        <nav className="flex-1 space-y-1">
-          {/* Overviews / Shops Tab */}
+        <nav className="flex-1 space-y-1 overflow-y-auto custom-scrollbar">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`w-full flex items-center gap-3 px-6 py-3 transition-all cursor-pointer font-bold uppercase tracking-wider text-[10px] ${
+              activeTab === 'dashboard'
+                ? 'text-amber-500 border-l-4 border-amber-500 bg-amber-500/10'
+                : 'text-stone-400 hover:text-amber-500 hover:bg-neutral-950/40'
+            }`}
+          >
+            <LayoutDashboard className="w-4 h-4 shrink-0" />
+            <span>Dashboard</span>
+          </button>
+
           <button
             onClick={() => setActiveTab('shops')}
-            className={`w-full flex items-center gap-3 px-6 py-3 transition-all cursor-pointer font-bold uppercase tracking-wider text-xs ${
+            className={`w-full flex items-center gap-3 px-6 py-3 transition-all cursor-pointer font-bold uppercase tracking-wider text-[10px] ${
               activeTab === 'shops'
                 ? 'text-amber-500 border-l-4 border-amber-500 bg-amber-500/10'
                 : 'text-stone-400 hover:text-amber-500 hover:bg-neutral-950/40'
             }`}
           >
-            <Store className="w-5 h-5 shrink-0" />
-            <span>Lista de Barbearias</span>
+            <Store className="w-4 h-4 shrink-0" />
+            <span>Barbearias</span>
           </button>
 
-          {/* Revenue Analytics Tab */}
-          <button
-            onClick={() => setActiveTab('revenue')}
-            className={`w-full flex items-center gap-3 px-6 py-3 transition-all cursor-pointer font-bold uppercase tracking-wider text-xs ${
-              activeTab === 'revenue'
-                ? 'text-amber-500 border-l-4 border-amber-500 bg-amber-500/10'
-                : 'text-stone-400 hover:text-amber-500 hover:bg-neutral-950/40'
-            }`}
-          >
-            <TrendingUp className="w-5 h-5 shrink-0" />
-            <span>Receita & Análise</span>
-          </button>
-
-          {/* Subscription Management Tab */}
           <button
             onClick={() => setActiveTab('subscriptions')}
-            className={`w-full flex items-center gap-3 px-6 py-3 transition-all cursor-pointer font-bold uppercase tracking-wider text-xs ${
+            className={`w-full flex items-center gap-3 px-6 py-3 transition-all cursor-pointer font-bold uppercase tracking-wider text-[10px] ${
               activeTab === 'subscriptions'
                 ? 'text-amber-500 border-l-4 border-amber-500 bg-amber-500/10'
                 : 'text-stone-400 hover:text-amber-500 hover:bg-neutral-950/40'
             }`}
           >
-            <CreditCard className="w-5 h-5 shrink-0" />
-            <span>Planos & Cupons</span>
+            <CreditCard className="w-4 h-4 shrink-0" />
+            <span>Subscrições</span>
           </button>
 
-          {/* Support Ticket Workspace Tab */}
+          <button
+            onClick={() => setActiveTab('invites')}
+            className={`w-full flex items-center gap-3 px-6 py-3 transition-all cursor-pointer font-bold uppercase tracking-wider text-[10px] ${
+              activeTab === 'invites'
+                ? 'text-amber-500 border-l-4 border-amber-500 bg-amber-500/10'
+                : 'text-stone-400 hover:text-amber-500 hover:bg-neutral-950/40'
+            }`}
+          >
+            <Mail className="w-4 h-4 shrink-0" />
+            <span>Convites</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('revenue')}
+            className={`w-full flex items-center gap-3 px-6 py-3 transition-all cursor-pointer font-bold uppercase tracking-wider text-[10px] ${
+              activeTab === 'revenue'
+                ? 'text-amber-500 border-l-4 border-amber-500 bg-amber-500/10'
+                : 'text-stone-400 hover:text-amber-500 hover:bg-neutral-950/40'
+            }`}
+          >
+            <DollarSign className="w-4 h-4 shrink-0" />
+            <span>Financeiro</span>
+          </button>
+
           <button
             onClick={() => setActiveTab('support')}
-            className={`w-full flex items-center gap-3 px-6 py-3 transition-all cursor-pointer font-bold uppercase tracking-wider text-xs ${
+            className={`w-full flex items-center gap-3 px-6 py-3 transition-all cursor-pointer font-bold uppercase tracking-wider text-[10px] ${
               activeTab === 'support'
                 ? 'text-amber-500 border-l-4 border-amber-500 bg-amber-500/10'
                 : 'text-stone-400 hover:text-amber-500 hover:bg-neutral-950/40'
             }`}
           >
-            <Headphones className="w-5 h-5 shrink-0" />
-            <span>Canais de Suporte</span>
+            <Headphones className="w-4 h-4 shrink-0" />
+            <span>Suporte</span>
           </button>
 
-          {/* Platform Settings Tab */}
+          <button
+            onClick={() => setActiveTab('logs')}
+            className={`w-full flex items-center gap-3 px-6 py-3 transition-all cursor-pointer font-bold uppercase tracking-wider text-[10px] ${
+              activeTab === 'logs'
+                ? 'text-amber-500 border-l-4 border-amber-500 bg-amber-500/10'
+                : 'text-stone-400 hover:text-amber-500 hover:bg-neutral-950/40'
+            }`}
+          >
+            <FileText className="w-4 h-4 shrink-0" />
+            <span>Logs</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`w-full flex items-center gap-3 px-6 py-3 transition-all cursor-pointer font-bold uppercase tracking-wider text-[10px] ${
+              activeTab === 'users'
+                ? 'text-amber-500 border-l-4 border-amber-500 bg-amber-500/10'
+                : 'text-stone-400 hover:text-amber-500 hover:bg-neutral-950/40'
+            }`}
+          >
+            <Users className="w-4 h-4 shrink-0" />
+            <span>Utilizadores</span>
+          </button>
+
           <button
             onClick={() => setActiveTab('settings')}
-            className={`w-full flex items-center gap-3 px-6 py-3 transition-all cursor-pointer font-bold uppercase tracking-wider text-xs ${
+            className={`w-full flex items-center gap-3 px-6 py-3 transition-all cursor-pointer font-bold uppercase tracking-wider text-[10px] ${
               activeTab === 'settings'
                 ? 'text-amber-500 border-l-4 border-amber-500 bg-amber-500/10'
                 : 'text-stone-400 hover:text-amber-500 hover:bg-neutral-950/40'
             }`}
           >
-            <Settings className="w-5 h-5 shrink-0" />
-            <span>Ajustes SaaS</span>
+            <Settings className="w-4 h-4 shrink-0" />
+            <span>Configurações</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('monitor')}
+            className={`w-full flex items-center gap-3 px-6 py-3 transition-all cursor-pointer font-bold uppercase tracking-wider text-[10px] ${
+              activeTab === 'monitor'
+                ? 'text-amber-500 border-l-4 border-amber-500 bg-amber-500/10'
+                : 'text-stone-400 hover:text-amber-500 hover:bg-neutral-950/40'
+            }`}
+          >
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>Monitorização</span>
           </button>
         </nav>
 
@@ -470,11 +542,16 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
         <header className="sticky top-0 z-40 bg-[#0d0d0c]/90 backdrop-blur-md border-b border-white/5 px-8 h-18 flex justify-between items-center">
           <div className="flex items-center gap-4 flex-1">
             <h2 className="font-serif text-xl font-medium text-stone-100">
-              {activeTab === 'shops' && 'Diretório de Barbearias'}
-              {activeTab === 'revenue' && 'Demonstrativos e Métricas'}
+              {activeTab === 'dashboard' && 'Dashboard SaaS'}
+              {activeTab === 'shops' && 'Gestão de Barbearias'}
               {activeTab === 'subscriptions' && 'Gerenciamento de Planos'}
+              {activeTab === 'invites' && 'Gestão de Convites'}
+              {activeTab === 'revenue' && 'Lançamentos Financeiros'}
               {activeTab === 'support' && 'Central de Atendimento'}
+              {activeTab === 'logs' && 'Logs e Auditoria'}
+              {activeTab === 'users' && 'Utilizadores Globais'}
               {activeTab === 'settings' && 'Ajustes da Plataforma'}
+              {activeTab === 'monitor' && 'Monitorização de Sistema'}
             </h2>
           </div>
 
@@ -654,18 +731,28 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
                             <td className="px-6 py-4 text-right">
                               <div className="flex items-center justify-end gap-2">
                                 <button
-                                  onClick={() => toggleShopStatus(shop.id, shop.status)}
-                                  className="text-stone-400 hover:text-amber-500 p-1 bg-neutral-900 border border-white/5 rounded"
-                                  title="Ajustar Status Bloqueio"
+                                  onClick={() => {
+                                    triggerToast(`Sucesso! Efetuando login temporário como ${shop.ownerName} na barbearia ${shop.name}...`);
+                                    setTimeout(() => onBackToMain(), 1500); // Simulate login redirect
+                                  }}
+                                  className="text-stone-400 hover:text-amber-500 p-1.5 bg-neutral-900 border border-white/5 rounded transition-all"
+                                  title="Impersonate (Entrar na Conta)"
                                 >
-                                  <Lock className="w-3.5 h-3.5" />
+                                  <ArrowRight className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => toggleShopStatus(shop.id, shop.status)}
+                                  className="text-stone-400 hover:text-amber-500 p-1.5 bg-neutral-900 border border-white/5 rounded transition-all"
+                                  title={shop.status === 'Suspended' ? 'Reativar Conveniada' : 'Suspender/Bloquear Conveniada'}
+                                >
+                                  <Lock className="w-4 h-4" />
                                 </button>
                                 <button
                                   onClick={() => handleDeleteShop(shop.id, shop.name)}
-                                  className="text-rose-400 hover:text-rose-300 p-1 bg-neutral-900 border border-white/5 rounded"
+                                  className="text-rose-400 hover:text-rose-300 p-1.5 bg-neutral-900 border border-white/5 rounded transition-all"
                                   title="Remover Conveniada"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <Trash2 className="w-4 h-4" />
                                 </button>
                               </div>
                             </td>
@@ -828,14 +915,14 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
             </div>
           )}
 
-          {/* TAB 2: REVENUE ANALYTICS */}
-          {activeTab === 'revenue' && (
+          {/* OVERVIEW DASHBOARD */}
+          {activeTab === 'dashboard' && (
             <div className="space-y-8 max-w-7xl mx-auto">
               
               {/* Header */}
               <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-4">
                 <div>
-                  <h1 className="font-serif text-3xl font-medium text-[#e5e2e1]">Métricas & Faturamento Geral</h1>
+                  <h1 className="font-serif text-3xl font-medium text-[#e5e2e1]">Dashboard Geral</h1>
                   <p className="text-stone-400 text-xs mt-1">Acompanhamento do Crescimento Financeiro e do MRR acumulativo da plataforma SaaS.</p>
                 </div>
                 
@@ -870,35 +957,32 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
                   </div>
                 </div>
 
-                {/* Churn Card */}
+                {/* Trials Card */}
                 <div className="bg-[#111110] border border-white/5 p-6 rounded-2xl relative overflow-hidden group">
-                  <p className="text-[10px] uppercase font-bold text-amber-500 tracking-widest mb-2">Taxa de Churn SaaS</p>
+                  <p className="text-[10px] uppercase font-bold text-amber-500 tracking-widest mb-2">Trials Ativos</p>
                   <div className="flex items-end gap-2">
-                    <h3 className="text-2xl font-black font-mono text-white">0%</h3>
-                    <span className="text-green-400 font-bold text-xs flex items-center mb-1 font-mono">
-                      -0.0% este mês
+                    <h3 className="text-2xl font-black font-mono text-white">0</h3>
+                    <span className="text-stone-500 font-bold text-xs flex items-center mb-1 font-mono">
+                      Em conversão
                     </span>
                   </div>
                   <div className="mt-4 flex gap-1">
                     <div className="h-1.5 flex-1 bg-neutral-900 rounded"></div>
                     <div className="h-1.5 flex-1 bg-neutral-900 rounded"></div>
-                    <div className="h-1.5 flex-1 bg-amber-500/30 rounded"></div>
-                    <div className="h-1.5 flex-1 bg-amber-500 rounded"></div>
                   </div>
                 </div>
 
-                {/* Active Subscriptions */}
+                {/* Total Barbearias */}
                 <div className="bg-[#111110] border border-white/5 p-6 rounded-2xl relative overflow-hidden group">
-                  <p className="text-[10px] uppercase font-bold text-amber-500 tracking-widest mb-2">Contas Ativas na Rede</p>
+                  <p className="text-[10px] uppercase font-bold text-amber-500 tracking-widest mb-2">Total de Barbearias / Ativas</p>
                   <div className="flex items-end gap-2">
                     <h3 className="text-2xl font-black font-mono text-white">{stats.totalShops}</h3>
-                    <span className="text-stone-400 text-xs mb-1 font-mono"></span>
+                    <span className="text-green-400 text-xs font-bold mb-1 font-mono">/ {stats.totalShops}</span>
                   </div>
                   {/* Avatars */}
                   <div className="mt-4 flex -space-x-2">
-                    <div className="w-7 h-7 rounded-full bg-neutral-800 border-2 border-[#111110] flex items-center justify-center text-[10px] font-bold">GB</div>
-                    <div className="w-7 h-7 rounded-full bg-neutral-800 border-2 border-[#111110] flex items-center justify-center text-[10px] font-bold">PC</div>
-                    <div className="w-7 h-7 rounded-full bg-neutral-800 border-2 border-[#111110] flex items-center justify-center text-[10px] font-bold">UF</div>
+                    <div className="w-7 h-7 rounded-full bg-neutral-800 border-2 border-[#111110] flex items-center justify-center text-[10px] font-bold text-stone-400">GB</div>
+                    <div className="w-7 h-7 rounded-full bg-neutral-800 border-2 border-[#111110] flex items-center justify-center text-[10px] font-bold text-stone-400">PC</div>
                   </div>
                 </div>
 
@@ -1815,6 +1899,159 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
                 </button>
               </div>
 
+            </div>
+          )}
+
+          {/* TAB 6: INVITES */}
+          {activeTab === 'invites' && (
+            <div className="space-y-8 max-w-7xl mx-auto">
+              
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+                <div>
+                  <h1 className="font-serif text-3xl font-medium text-[#e5e2e1]">Convites (Onboarding)</h1>
+                  <p className="text-stone-400 text-xs mt-1">Gerencie os links de convite para novas barbearias entrarem na plataforma.</p>
+                </div>
+                
+                <button
+                  onClick={() => setIsInviteModalOpen(true)}
+                  className="bg-amber-500 hover:bg-amber-400 text-[#0d0d0c] font-bold px-5 py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  Gerar Convite
+                </button>
+              </div>
+
+              <div className="bg-[#111110] border border-white/5 rounded-2xl overflow-hidden shadow-2xl">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-neutral-900/55 border-b border-white/5">
+                        <th className="px-6 py-4 text-[10px] uppercase font-bold text-stone-400 tracking-wider">Código / Status</th>
+                        <th className="px-6 py-4 text-[10px] uppercase font-bold text-stone-400 tracking-wider">Link de Acesso</th>
+                        <th className="px-6 py-4 text-[10px] uppercase font-bold text-stone-400 tracking-wider text-center">Usos</th>
+                        <th className="px-6 py-4 text-[10px] uppercase font-bold text-stone-400 tracking-wider">Expiração</th>
+                        <th className="px-6 py-4"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {invites.map((inv) => (
+                        <tr key={inv.id} className="hover:bg-neutral-900/35 transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="text-xs font-bold text-stone-100 font-mono">{inv.id}</div>
+                            <div className="text-[10px] uppercase font-bold mt-1">
+                              <span className={inv.status === 'Active' ? 'text-green-500' : 'text-rose-500'}>{inv.status}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-[10px] bg-neutral-900 px-2 py-1 rounded text-stone-300 font-mono select-all">
+                              {inv.link}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <span className="text-xs font-bold text-stone-100">{inv.used}</span>
+                            <span className="text-stone-500 text-xs"> / {inv.limit}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2 text-stone-400 text-xs">
+                              <Calendar className="w-3.5 h-3.5" />
+                              {inv.expires}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button
+                               onClick={() => triggerToast('Link copiado para a área de transferência!')}
+                               className="text-stone-400 hover:text-amber-500 p-1.5 bg-neutral-900 border border-white/5 rounded"
+                               title="Copiar Link"
+                             >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                             </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+               {/* INVITE MODAL */}
+              {isInviteModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0d0d0c]/85 backdrop-blur-sm">
+                  <div className="bg-[#111110] border border-amber-500/20 rounded-2xl p-8 max-w-sm w-full space-y-6 animate-slide-up relative">
+                    <div className="border-b border-white/5 pb-4">
+                        <span className="text-[10px] uppercase text-amber-500 font-bold tracking-widest block">SAAS CONTROL</span>
+                        <h3 className="text-lg font-serif text-stone-100">Gerar Novo Convite</h3>
+                    </div>
+                    <div>
+                        <p className="text-xs text-stone-400 mb-2">Este processo gerencia a criação de um link seguro de cadastro (onboarding) para uma nova barbearia parceira na plataforma BarberPro.</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-amber-500/80">Regras do convite:</p>
+                        <ul className="text-xs text-stone-400 list-disc list-inside mt-1 ml-1 space-y-1">
+                            <li>Expira em 31/12/2026.</li>
+                            <li>Válido para 1 loja.</li>
+                        </ul>
+                    </div>
+
+                    <div className="flex gap-3 pt-4">
+                        <button
+                          type="button"
+                          onClick={() => setIsInviteModalOpen(false)}
+                          className="flex-1 bg-neutral-900 hover:bg-neutral-800 text-stone-300 py-3 rounded-xl text-xs uppercase font-bold text-center transition-all cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={handleCreateInvite}
+                          className="flex-1 bg-amber-500 hover:bg-amber-400 text-[#0d0d0c] font-black py-3 rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer"
+                        >
+                          Confirmar
+                        </button>
+                    </div>
+                  </div>
+               </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 7: REVENUE (PHASE 3) */}
+          {activeTab === 'revenue' && (
+            <div className="max-w-7xl mx-auto flex flex-col items-center justify-center h-[60vh] text-center">
+              <div className="w-16 h-16 bg-neutral-900 border border-white/5 rounded-2xl flex items-center justify-center text-stone-600 mb-4">
+                <DollarSign className="w-8 h-8" />
+              </div>
+              <h2 className="text-xl font-serif text-stone-200">Gestão Financeira (Brevemente)</h2>
+              <p className="text-sm text-stone-500 mt-2 max-w-md">Painel financeiro multiloja com caixa isolado e automações inteligentes (Fase 3).</p>
+            </div>
+          )}
+
+          {/* TAB 8: LOGS (PHASE 2) */}
+          {activeTab === 'logs' && (
+            <div className="max-w-7xl mx-auto flex flex-col items-center justify-center h-[60vh] text-center">
+              <div className="w-16 h-16 bg-neutral-900 border border-white/5 rounded-2xl flex items-center justify-center text-stone-600 mb-4">
+                <FileText className="w-8 h-8" />
+              </div>
+              <h2 className="text-xl font-serif text-stone-200">Auditoria & Logs (Fase 2)</h2>
+              <p className="text-sm text-stone-500 mt-2 max-w-md">Histórico global de alterações em planos, criação de lojas e eventos de sistema.</p>
+            </div>
+          )}
+
+          {/* TAB 9: USERS (GLOBAL) */}
+          {activeTab === 'users' && (
+            <div className="max-w-7xl mx-auto flex flex-col items-center justify-center h-[60vh] text-center">
+              <div className="w-16 h-16 bg-neutral-900 border border-white/5 rounded-2xl flex items-center justify-center text-stone-600 mb-4">
+                <Users className="w-8 h-8" />
+              </div>
+              <h2 className="text-xl font-serif text-stone-200">Equipa Global (Em Desenvolvimento)</h2>
+              <p className="text-sm text-stone-500 mt-2 max-w-md">Controlo de perfis administrativos de suporte e gestão da plataforma (Owner, Support, Billing).</p>
+            </div>
+          )}
+
+          {/* TAB 10: MONITOR (TECHNICAL) */}
+          {activeTab === 'monitor' && (
+            <div className="max-w-7xl mx-auto flex flex-col items-center justify-center h-[60vh] text-center">
+              <div className="w-16 h-16 bg-neutral-900 border border-white/5 rounded-2xl flex items-center justify-center text-stone-600 mb-4">
+                <CheckCircle2 className="w-8 h-8" />
+              </div>
+              <h2 className="text-xl font-serif text-stone-200">Infraestrutura SaaS (Em breve)</h2>
+              <p className="text-sm text-stone-500 mt-2 max-w-md">Status de APIs, conectividade com Stripe, WhatsApp e monitorização da base de dados Supabase.</p>
             </div>
           )}
 
