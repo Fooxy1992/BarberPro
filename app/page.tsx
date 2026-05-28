@@ -14,6 +14,16 @@ import {
   EstoqueView,
   FidelizacaoView
 } from '../components/dashboard-views';
+import { SuperAdminView } from '../components/super-admin-views';
+import { AuthOverlay, AccessDeniedView } from '../components/auth-views';
+import { supabase } from '../lib/supabase';
+import {
+  loadTableData,
+  saveRow,
+  deleteRow,
+  getSyncStatus,
+  SUPABASE_SETUP_SQL
+} from '../lib/supabase-service';
 import {
   Scissors,
   LayoutDashboard,
@@ -50,7 +60,8 @@ import {
   Trash2,
   RefreshCw,
   LogOut,
-  Sliders
+  Sliders,
+  Store
 } from 'lucide-react';
 
 // Define core interfaces
@@ -84,57 +95,7 @@ interface StockItem {
   category: 'inventory' | 'soap' | 'warning';
 }
 
-const SERVICES_LIST = [
-  {
-    id: 'corte-masc',
-    name: 'Corte Masculino',
-    duration: '30 min',
-    price: 50,
-    description: 'Degradê, clássico ou moderno. Finalização com produtos premium.',
-    icon: Scissors,
-  },
-  {
-    id: 'barba',
-    name: 'Barba',
-    duration: '25 min',
-    price: 40,
-    description: 'Modelagem, toalha quente e tratamento com óleo especial.',
-    icon: Smile,
-  },
-  {
-    id: 'combo',
-    name: 'Combo Corte + Barba',
-    duration: '60 min',
-    price: 80,
-    description: 'Nossa assinatura. Experiência completa com relaxamento.',
-    icon: Sparkles,
-  },
-  {
-    id: 'sobrancelha',
-    name: 'Sobrancelha',
-    duration: '15 min',
-    price: 25,
-    description: 'Limpeza e design alinhado.',
-    icon: Clipboard,
-  },
-  {
-    id: 'pigmentacao',
-    name: 'Pigmentação',
-    duration: '40 min',
-    price: 120,
-    description: 'Correção de falhas e realce.',
-    icon: Palette,
-  },
-  {
-    id: 'tratamentos',
-    name: 'Tratamentos Capilares',
-    duration: '30 min',
-    price: 60,
-    description: 'Hidratação profunda e cuidados.',
-    icon: Heart,
-  },
-];
-
+  // Array of services dynamically populated from Supabase
 const ICON_MAP: Record<string, React.ComponentType<any>> = {
   scissors: Scissors,
   smile: Smile,
@@ -150,39 +111,49 @@ const ICON_MAP: Record<string, React.ComponentType<any>> = {
 
 export default function HomeView() {
   // Navigation State
-  const [view, setView] = useState<'landing' | 'dashboard'>('landing');
+  const [view, setView] = useState<'landing' | 'dashboard' | 'superadmin'>('landing');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [dashboardTab, setDashboardTab] = useState<'dashboard' | 'agenda' | 'agendamentos' | 'clientes' | 'barbeiros' | 'servicos' | 'caixa' | 'controle' | 'estoque' | 'fidelizacao'>('dashboard');
 
+  // Supabase Sync Indicator States
+  const [supabaseSync, setSupabaseSync] = useState<{ connected: boolean; message: string; source: 'supabase' | 'local' }>({
+    connected: false,
+    message: 'Aguardando nuvem...',
+    source: 'local'
+  });
+  const [isSqlModalOpen, setIsSqlModalOpen] = useState(false);
+
+  // Authentication States
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    // 1. Fetch initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setCurrentUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+
+    // 2. Subscribe to auth events
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
   // Dynamic services state (to make catalogs interactive)
-  const [services, setServices] = useState(() => 
-    SERVICES_LIST.map(s => ({
-      id: s.id,
-      name: s.name,
-      duration: s.duration,
-      price: s.price,
-      description: s.description,
-      iconKey: s.id === 'corte-masc' ? 'scissors' : s.id === 'barba' ? 'smile' : s.id === 'combo' ? 'sparkles' : s.id === 'sobrancelha' ? 'clipboard' : s.id === 'pigmentacao' ? 'palette' : 'heart'
-    }))
-  );
+  const [services, setServices] = useState<any[]>([]);
 
   // Clients database state for CRM Integration
-  const [clients, setClients] = useState([
-    { id: 'cli-1', name: 'Carlos Silva', email: 'carlos@outlook.com', phone: '(11) 98765-4321', sales: 4, spent: 320, lastVisit: '2026-05-15', loyaltyPoints: 320 },
-    { id: 'cli-2', name: 'Lucas Pereira', email: 'lucas.p@gmail.com', phone: '(11) 91234-5678', sales: 7, spent: 450, lastVisit: '2026-05-22', loyaltyPoints: 450 },
-    { id: 'cli-3', name: 'João Santos', email: 'joao.santos@uol.com', phone: '(21) 97777-8888', sales: 2, spent: 100, lastVisit: '2026-05-28', loyaltyPoints: 100 },
-    { id: 'cli-4', name: 'Marcos Souza', email: 'marcos@gmail.com', phone: '(11) 93333-4444', sales: 12, spent: 850, lastVisit: '2026-05-10', loyaltyPoints: 850 },
-  ]);
+  const [clients, setClients] = useState<any[]>([]);
 
   // Operational cash register state
   const [cashRegisterStatus, setCashRegisterStatus] = useState<'aberto' | 'fechado'>('aberto');
-  const [cashTransactions, setCashTransactions] = useState<any[]>([
-    { id: 't-1', type: 'faturamento', amount: 80, description: 'Corte + Barba - Carlos Silva', date: '2026-05-28', category: 'Serviço' },
-    { id: 't-2', type: 'faturamento', amount: 50, description: 'Corte Masculino - Lucas Pereira', date: '2026-05-28', category: 'Serviço' },
-    { id: 't-3', type: 'despesas', amount: 120, description: 'Compra de lâminas descartáveis', date: '2026-05-27', category: 'Insumos' },
-    { id: 't-4', type: 'faturamento', amount: 40, description: 'Modelagem Barba - João Santos', date: '2026-05-28', category: 'Serviço' },
-    { id: 't-5', type: 'despesas', amount: 350, description: 'Conta de energia elétrica', date: '2026-05-25', category: 'Utilidades' },
-  ]);
+  const [cashTransactions, setCashTransactions] = useState<any[]>([]);
 
   // Modals status for CRM and Settings
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
@@ -200,7 +171,7 @@ export default function HomeView() {
   const [isQuickCashOpen, setIsQuickCashOpen] = useState(false);
   const [quickCashForm, setQuickCashForm] = useState({ type: 'faturamento', amount: '', description: '', category: 'Venda Geral' });
 
-  const [selectedLoyaltyClient, setSelectedLoyaltyClient] = useState<string | null>('cli-1');
+  const [selectedLoyaltyClient, setSelectedLoyaltyClient] = useState<string | null>(null);
 
   // Notifications State for micro-interactions
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -213,99 +184,29 @@ export default function HomeView() {
   };
 
   // State core representing scheduling system database (Hydrates from standard state)
-  const [appointments, setAppointments] = useState<Appointment[]>([
-    {
-      id: 'appt-1',
-      time: '14:30',
-      clientName: 'Carlos Silva',
-      serviceName: 'Corte + Barba',
-      price: 80,
-      status: 'Confirmado',
-      avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAmIz94TADtLTH8nW_WmrsbHOQYrFKDh7ia8EU1ADPl_muO6mGkC8H5xW3Tizc3RrsUbHqNQ7nJcKBgb9YvTFlneGOIo8xdFM_ZxlqmnHQeNj-myQTm6wbz7hchIIabdPH4GWUoVZ-4pE5r_CQ6_owPo-b29N4TFAL-D92oVfNUeT_40_C2ERFZWjcAQqZ2defAYdGA1GubLhtANblIuct2h4uZNOmiiV91blPoBJjLXYA6OzLVRruhvJ3ZqKhffCiAFq3bzJbqQxI',
-      barberId: 'barb-1',
-    },
-    {
-      id: 'appt-2',
-      time: '15:00',
-      clientName: 'Lucas Pereira',
-      serviceName: 'Corte Masculino',
-      price: 50,
-      status: 'Confirmado',
-      avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAt9Pi6ME3I0-wKmN94lcBAmKvz92SM-jiW9QDCvlpQMUXEdwIANmyGN2XwZQTw2lOkYsnLroOHH4HdFk-YSLpx8Vm-QwY5w1FhTCbaLhZX6BRsJiaBFPAJ2wID0Vhjv8do0icTZSLb5LLzcCnEaD2pbHZt9g-GfejRVtP3cyj5HCC1S0g_K6ave9Ukaoqd53Z1CfJXeV__Af22KWj2k866j3IfyT4y0lC_mzJJZ3kDsmSkBxGSeGjO7_95D5cGX7qF8bVpcwlr5Pk',
-      barberId: 'barb-3',
-    },
-    {
-      id: 'appt-3',
-      time: '15:30',
-      clientName: 'João Santos',
-      serviceName: 'Barba',
-      price: 40,
-      status: 'Em andamento',
-      avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuC9ygWFNnjtVas4kk4a9XRi0QEYa6_rzYLbSbg8X8iUShkAsl6xGRROK2NY_YiiQdu_fTb_dY5Q7JgpGyZJy_YnEOJ9JaPHb9blhzDNCaX0xeqOshKRlgkYuWqLh23jsql8SMOO3yPjTIedOtUEpMPkVp7s4xuDiqkyTOAPPvSmx_h9RrdtD8nbKRCBuNf2xFhTdtn7WBQV3tmZNP0eQwDHy8iANQsft7KbCD_pdGZeaWdSs3dVNxA96UOkaA7_fXx7NLbkp-c5bms',
-      barberId: 'barb-4',
-    },
-  ]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
 
-  const [barbers, setBarbers] = useState<Barber[]>([
-    {
-      id: 'barb-1',
-      name: 'Carlos Mendes',
-      specialty: 'Especialista em degradê',
-      room: 'Sala 01',
-      status: 'Atendendo',
-      rating: 4.9,
-      reviewsCount: 120,
-      avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAss6cGtHTrWQktuWtYJLl9OQm9tUOMTEQwfWDydopEY5TKf1EYPAiut97SRW0hzD1_bDxFMH9G0EVymWmASc6WPsIKDAbwD5GyJJXkjn8srT28yfyGs7NbwSgxqg0MiSRbt3FXWGaNBi6xJBIc3ODwJTVFAjMHTTbArqu5TjtkG55HVOZ5lcmuy4lhnuvPS28aF74BTfSJVh2F1BBXgvYWjpFtkrw5rZa-pLI4atcItU0j645b8f7gMbeqKDefgPi1E4OrZNQLjiA',
-    },
-    {
-      id: 'barb-2',
-      name: 'Rafael Souza',
-      specialty: 'Especialista em barba',
-      room: 'Sala 02',
-      status: 'Ausente',
-      rating: 4.8,
-      reviewsCount: 98,
-      avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDkD21hfapVRkJYPS8gnTStaJLyeZIoHfWZOajKrbrbYyljELkOfadV8oLWj9f7cl37F2qWQNxbpnPh8VbAN51e6OEcoOHqkLkQidIDH9HCTMAzHmiCXRvouOv2V_BesXXmOtQba8Cz4r0zXtjf-w8-64AhwWnMUjDQTYhpnxb2pvOQN7mzFdMkH7GpfLPXALIZTfKjDwtAX154vzqFsr9TUUBtByIPWGW893rBLjBNo9rTtxTsGiSGXWYNE6Q7nNeEJProWFqFzuE',
-    },
-    {
-      id: 'barb-3',
-      name: 'Lucas Ferreira',
-      specialty: 'Especialista em cortes',
-      room: 'Sala 03',
-      status: 'Livre',
-      rating: 4.9,
-      reviewsCount: 112,
-      avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAQa4toBZlARiJ3MHxhc3-BkXqP_IaeYjDedYr9nv-lgNRik0Idt9tb4fak4kyLCXjBfpJmiRlFy1Yz8S2J0iZAMgXXLut9eyfr5Iozqxuhnig_0dK2uVYGr6IYwISEeGSnk-LsK25Pzd4jbldvbgdoZgGRDuu4ws0eBmCg-V7PhH49mADOT1ntvzUBtaY-EZXEvE4DupKI7SqrfHvkBvxKUhqzA4rX-M55tj33swwbGk0oJxNzLt2suIkhwM9RmZ2VLvCWC_Ovb8M',
-    },
-    {
-      id: 'barb-4',
-      name: 'Bruno Oliveira',
-      specialty: 'Especialista em pigmentação',
-      room: 'Sala 04',
-      status: 'Atendendo',
-      rating: 4.7,
-      reviewsCount: 80,
-      avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCEe6N8a7kDVK96OuNzsF8B1KlG92y_ceAS651-BNVdcjzMI5bIoXXe7ElRRl6p3YmMg2rYN_IKrCavgvVQEU-dQPk08YT-eybzYzc_RarN-iLQiWtLmAXK2RQDIRV_t3iOfmc3LSAevFw18xXiuK62dJ4e_fBF5yUSkgUZjIDYIZ6BaM-slmUSSSgXbqZfYCBIfkOuM2pCk2OknJ9EOEtQacPAbTIbiphLp58JgM-N7f0qU6O34Qk-r0as2ARNnlNL_8abA6fBY_U',
-    },
-  ]);
+  const [barbers, setBarbers] = useState<Barber[]>([]);
 
-  const [stockItems, setStockItems] = useState<StockItem[]>([
-    { id: 'st-1', name: 'Pomada Black', status: 'Estoque baixo', quantity: 2, category: 'inventory' },
-    { id: 'st-2', name: 'Shampoo 3x1', status: 'Estoque baixo', quantity: 5, category: 'soap' },
-    { id: 'st-3', name: 'Óleo para barba', status: 'Estoque crítico', quantity: 0, category: 'warning' },
-  ]);
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
 
   const [finances, setFinances] = useState({
-    faturamento: 48750,
-    despesas: 18250,
+    faturamento: 0,
+    despesas: 0,
   });
 
   // Daily Metrics calculates dynamically
   const [dailyTarget, setDailyTarget] = useState(5000);
-  const averageTicketBase = 76.56;
+  
+  const averageTicket = useMemo(() => {
+    const fms = cashTransactions.filter((t: any) => t.type === 'faturamento');
+    if (fms.length === 0) return 0;
+    const total = fms.reduce((sum, t: any) => sum + Number(t.amount || 0), 0);
+    return total / fms.length;
+  }, [cashTransactions]);
 
   // Active state counters
-  const [activeClientsCount, setActiveClientsCount] = useState(248);
+  const [activeClientsCount, setActiveClientsCount] = useState(0);
 
   // Dynamic metrics of simulation & states for additional menu panels
   const [selectedAgendaDate, setSelectedAgendaDate] = useState<string>('2026-05-28');
@@ -324,13 +225,58 @@ export default function HomeView() {
   const [newProductForm, setNewProductForm] = useState({ name: '', quantity: 10 });
   const [isProductFormExpanded, setIsProductFormExpanded] = useState(false);
   const [loyaltyRewardSelection, setLoyaltyRewardSelection] = useState<string>('corte-gratis');
-  const [auditLogs, setAuditLogs] = useState<string[]>([
-    '08:00:10 - Sistema central de faturamento operacional online.',
-    '08:15:32 - Rafael Souza alterou disponibilidade presencial.',
-    '08:42:01 - Inicialização do terminal de faturamento financeiro.',
-    '09:02:11 - Carlos Mendes iniciou atendimento de Carlos Silva.',
-    '09:30:45 - Alertas de estoque verificados com sucesso pelo administrador.'
-  ]);
+  const [auditLogs, setAuditLogs] = useState<string[]>([]);
+
+  // Load data from Supabase
+  useEffect(() => {
+    async function loadAllSupabaseData() {
+      try {
+        const syncStatus = await getSyncStatus();
+        
+        // 1. Services table - seed with real standard production services
+        const resServices = await loadTableData<any>('services', []);
+        setServices(resServices.data);
+
+        // 2. Clients table - starts completely empty/production ready
+        const resClients = await loadTableData<any>('clients', []);
+        setClients(resClients.data);
+        setActiveClientsCount(resClients.data.length);
+
+        // 3. Transactions table - starts completely empty
+        const resTransactions = await loadTableData<any>('transactions', []);
+        setCashTransactions(resTransactions.data);
+
+        // Calculate finances values on-the-fly through actual database table sums
+        const totFat = resTransactions.data.filter((t: any) => t.type === 'faturamento').reduce((sum: number, t: any) => sum + t.amount, 0);
+        const totDes = resTransactions.data.filter((t: any) => t.type === 'despesas').reduce((sum: number, t: any) => sum + t.amount, 0);
+        setFinances({
+          faturamento: totFat,
+          despesas: totDes
+        });
+
+        // 4. Barbers table - starts empty (the user can create their custom team)
+        const resBarbers = await loadTableData<Barber>('barbers', []);
+        setBarbers(resBarbers.data);
+
+        // 5. Stock items table - starts empty
+        const resStock = await loadTableData<StockItem>('stock_items', []);
+        setStockItems(resStock.data);
+
+        // 6. Appointments table - starts empty
+        const resAppointments = await loadTableData<Appointment>('appointments', []);
+        setAppointments(resAppointments.data);
+
+        setSupabaseSync({
+          connected: syncStatus.connected,
+          message: syncStatus.message,
+          source: resServices.source
+        });
+      } catch (err) {
+        console.error('Falha de inicialização ao conectar com Supabase:', err);
+      }
+    }
+    loadAllSupabaseData();
+  }, []);
 
   // Active filters and query for appointments search on dashboard
   const [dashboardSearchQuery, setDashboardSearchQuery] = useState('');
@@ -370,9 +316,14 @@ export default function HomeView() {
   };
 
   const handleUpdateAppointmentStatus = (apptId: string, newStatus: 'Confirmado' | 'Em andamento' | 'Concluído' | 'Cancelado') => {
-    setAppointments((prev) =>
-      prev.map((appt) => appt.id === apptId ? { ...appt, status: newStatus } : appt)
-    );
+    setAppointments((prev) => {
+      const updated = prev.map((appt) => appt.id === apptId ? { ...appt, status: newStatus } : appt);
+      const target = updated.find((appt) => appt.id === apptId);
+      if (target) {
+        saveRow('appointments', target);
+      }
+      return updated;
+    });
     triggerToast(`Status do agendamento atualizado para "${newStatus}"!`);
   };
 
@@ -399,6 +350,7 @@ export default function HomeView() {
     };
 
     setAppointments((prev) => [newAppointment, ...prev]);
+    saveRow('appointments', newAppointment);
 
     // Update dynamic statistics: increment monthly billing automatically
     setFinances((prev) => ({
@@ -407,47 +359,43 @@ export default function HomeView() {
     }));
 
     // Post to Cash register transaction list dynamically
-    setCashTransactions((prev) => [
-      {
-        id: `t-${Date.now()}`,
-        type: 'faturamento',
-        amount: selectedService.price,
-        description: `Agendamento: ${selectedService.name} - ${bookingFormData.name}`,
-        date: bookingFormData.date,
-        category: 'Serviço',
-      },
-      ...prev,
-    ]);
+    const newTrans = {
+      id: `t-${Date.now()}`,
+      type: 'faturamento' as const,
+      amount: selectedService.price,
+      description: `Agendamento: ${selectedService.name} - ${bookingFormData.name}`,
+      date: bookingFormData.date,
+      category: 'Serviço',
+    };
+    setCashTransactions((prev) => [newTrans, ...prev]);
+    saveRow('transactions', newTrans);
 
     // Upsert client inside CRM list
     setClients((prev) => {
       const match = prev.find((c) => c.name.toLowerCase() === bookingFormData.name.toLowerCase());
       if (match) {
-        return prev.map((c) =>
-          c.id === match.id
-            ? {
-                ...c,
-                sales: c.sales + 1,
-                spent: c.spent + selectedService.price,
-                loyaltyPoints: c.loyaltyPoints + selectedService.price,
-                lastVisit: bookingFormData.date,
-              }
-            : c
-        );
+        const ucl = {
+          ...match,
+          sales: match.sales + 1,
+          spent: match.spent + selectedService.price,
+          loyaltyPoints: match.loyaltyPoints + selectedService.price,
+          lastVisit: bookingFormData.date,
+        };
+        saveRow('clients', ucl);
+        return prev.map((c) => c.id === match.id ? ucl : c);
       } else {
-        return [
-          ...prev,
-          {
-            id: `cli-${Date.now()}`,
-            name: bookingFormData.name,
-            email: `${bookingFormData.name.toLowerCase().replace(/\s+/g, '')}@exemplo.com`,
-            phone: '(11) 99999-8888',
-            sales: 1,
-            spent: selectedService.price,
-            loyaltyPoints: selectedService.price,
-            lastVisit: bookingFormData.date,
-          },
-        ];
+        const ncl = {
+          id: `cli-${Date.now()}`,
+          name: bookingFormData.name,
+          email: `${bookingFormData.name.toLowerCase().replace(/\s+/g, '')}@exemplo.com`,
+          phone: '(11) 99999-8888',
+          sales: 1,
+          spent: selectedService.price,
+          loyaltyPoints: selectedService.price,
+          lastVisit: bookingFormData.date,
+        };
+        saveRow('clients', ncl);
+        return [...prev, ncl];
       }
     });
 
@@ -464,17 +412,22 @@ export default function HomeView() {
 
   // Restock execution action
   const handleRestock = (item: StockItem) => {
-    setStockItems((prev) =>
-      prev.map((s) => (s.id === item.id ? { ...s, status: 'Estoque normal', quantity: s.quantity + 10 } : s))
-    );
+    setStockItems((prev) => {
+      const updated = prev.map((s) => (s.id === item.id ? { ...s, status: 'Estoque normal' as const, quantity: s.quantity + 10 } : s));
+      const target = updated.find(s => s.id === item.id);
+      if (target) {
+        saveRow('stock_items', target);
+      }
+      return updated;
+    });
     triggerToast(`${item.name} reabastecido! (+10 unidades adicionadas)`);
     setSelectedRestockItem(null);
   };
 
   // Toggle barber presence status directly
   const handleToggleBarber = (barberId: string) => {
-    setBarbers((prev) =>
-      prev.map((b) => {
+    setBarbers((prev) => {
+      const updated = prev.map((b) => {
         if (b.id === barberId) {
           const statusCycle: Barber['status'][] = ['Livre', 'Atendendo', 'Ausente'];
           const currentIdx = statusCycle.indexOf(b.status);
@@ -482,46 +435,59 @@ export default function HomeView() {
           return { ...b, status: nextStatus };
         }
         return b;
-      })
-    );
+      });
+      const target = updated.find(b => b.id === barberId);
+      if (target) {
+        saveRow('barbers', target);
+      }
+      return updated;
+    });
     triggerToast('Disponibilidade do barbeiro atualizada!');
   };
 
   // Complete appointment manually from dashboard list or remove it
   const handleCompleteAppt = (id: string) => {
-    setAppointments((prev) =>
-      prev.map((a) => {
+    setAppointments((prev) => {
+      let updatedAppt: any = null;
+      const nextAppts = prev.map((a) => {
         if (a.id === id) {
           if (a.status !== 'Concluído') {
-            setCashTransactions((t) => [
-              {
-                id: `t-comp-${Date.now()}`,
-                type: 'faturamento',
-                amount: a.price,
-                description: `Atendimento Concluído: ${a.serviceName} - ${a.clientName}`,
-                date: '2026-05-28',
-                category: 'Serviço',
-              },
-              ...t,
-            ]);
+            const newT = {
+              id: `t-comp-${Date.now()}`,
+              type: 'faturamento' as const,
+              amount: a.price,
+              description: `Atendimento Concluído: ${a.serviceName} - ${a.clientName}`,
+              date: '2026-05-28',
+              category: 'Serviço',
+            };
+            setCashTransactions((t) => [newT, ...t]);
+            saveRow('transactions', newT);
+
             setClients((cl) =>
-              cl.map((c) =>
-                c.name.toLowerCase() === a.clientName.toLowerCase()
-                  ? { ...c, loyaltyPoints: c.loyaltyPoints + a.price, spent: c.spent + a.price, sales: c.sales + 1 }
-                  : c
-              )
+              cl.map((c) => {
+                if (c.name.toLowerCase() === a.clientName.toLowerCase()) {
+                  const ucl = { ...c, loyaltyPoints: c.loyaltyPoints + a.price, spent: c.spent + a.price, sales: c.sales + 1 };
+                  saveRow('clients', ucl);
+                  return ucl;
+                }
+                return c;
+              })
             );
           }
-          return { ...a, status: 'Concluído' as const };
+          updatedAppt = { ...a, status: 'Concluído' as const };
+          saveRow('appointments', updatedAppt);
+          return updatedAppt;
         }
         return a;
-      })
-    );
+      });
+      return nextAppts;
+    });
     triggerToast('Atendimento marcado como concluído e pontos creditados!');
   };
 
   const handleRemoveAppt = (id: string) => {
     setAppointments((prev) => prev.filter((a) => a.id !== id));
+    deleteRow('appointments', id);
     triggerToast('Agendamento removido.');
   };
 
@@ -569,15 +535,13 @@ export default function HomeView() {
 
   // Compute stats on-the-fly
   const totalAgendamentosHoje = useMemo(() => {
-    return appointments.filter((a) => a.status !== 'Concluído').length + 29; // adding baseline to simulate complete data volume
+    return appointments.filter((a: any) => a.status !== 'Concluído').length;
   }, [appointments]);
 
   const totalReceitaDia = useMemo(() => {
-    const baseAmt = 2450;
-    const additional = appointments
-      .filter((a) => a.status === 'Concluído')
+    return appointments
+      .filter((a: any) => a.status === 'Concluído')
       .reduce((sum, item) => sum + item.price, 0);
-    return baseAmt + additional;
   }, [appointments]);
 
   const lucroLiquido = useMemo(() => {
@@ -588,15 +552,15 @@ export default function HomeView() {
     return stockItems.filter((s) => s.status !== 'Estoque normal').length;
   }, [stockItems]);
 
-  // Daily Chart coordinates
+  // Daily Chart coordinates (Mock path, but dynamic data structure for revenue)
   const weeklyData = [
-    { day: 'Seg', isCompleted: false, revenue: 1800, coordinates: { cx: 40, cy: 155 } },
-    { day: 'Ter', isCompleted: true, revenue: 2450, coordinates: { cx: 150, cy: 130 } },
-    { day: 'Qua', isCompleted: false, revenue: 2100, coordinates: { cx: 250, cy: 145 } },
-    { day: 'Qui', isCompleted: true, revenue: 2750, coordinates: { cx: 360, cy: 110 } },
-    { day: 'Sex', isCompleted: false, revenue: 2200, coordinates: { cx: 470, cy: 140 } },
-    { day: 'Sáb', isCompleted: true, revenue: 3100, coordinates: { cx: 580, cy: 80 } },
-    { day: 'Dom', isCompleted: false, revenue: 3500, coordinates: { cx: 680, cy: 50 } },
+    { day: 'Seg', isCompleted: false, revenue: 0, coordinates: { cx: 40, cy: 155 } },
+    { day: 'Ter', isCompleted: true, revenue: 0, coordinates: { cx: 150, cy: 130 } },
+    { day: 'Qua', isCompleted: false, revenue: 0, coordinates: { cx: 250, cy: 145 } },
+    { day: 'Qui', isCompleted: true, revenue: 0, coordinates: { cx: 360, cy: 110 } },
+    { day: 'Sex', isCompleted: false, revenue: 0, coordinates: { cx: 470, cy: 140 } },
+    { day: 'Sáb', isCompleted: true, revenue: 0, coordinates: { cx: 580, cy: 80 } },
+    { day: 'Dom', isCompleted: false, revenue: 0, coordinates: { cx: 680, cy: 50 } },
   ];
 
   return (
@@ -662,6 +626,19 @@ export default function HomeView() {
 
               {/* Action Buttons */}
               <div className="flex items-center gap-3">
+                {/* Discreet Super Admin Login Key */}
+                <button
+                  onClick={() => {
+                    setView('superadmin');
+                    triggerToast('Painel de controle Super Admin SaaS carregado com sucesso!');
+                  }}
+                  className="p-2.5 bg-neutral-900 border border-amber-500/10 hover:border-amber-500/30 rounded-lg text-amber-500 hover:text-amber-400 transition-all text-xs flex items-center gap-2 cursor-pointer font-bold uppercase tracking-wider"
+                  title="Acesso Plataforma SaaS"
+                >
+                  <Store className="w-4 h-4 text-amber-500" />
+                  <span className="hidden sm:inline">Portal SaaS</span>
+                </button>
+
                 {/* Discreet Admin Login Key */}
                 <button
                   onClick={() => {
@@ -1315,7 +1292,24 @@ export default function HomeView() {
 
       {/* VIEW DE ACCONA / DASHBOARD ADMINISTRATIVO */}
       {view === 'dashboard' && (
-        <div className="flex h-screen w-full bg-background overflow-hidden relative">
+        !currentUser ? (
+          <AuthOverlay
+            targetView="dashboard"
+            onSuccess={(usr) => {
+              setCurrentUser(usr);
+              triggerToast('Painel administrativo administrativo carregado com sucesso!');
+            }}
+            onCancel={() => setView('landing')}
+            triggerToast={triggerToast}
+          />
+        ) : (currentUser?.user_metadata?.role !== 'gerente' && currentUser?.user_metadata?.role !== 'barbeiro') ? (
+          <AccessDeniedView
+            requiredRoles={['gerente', 'barbeiro']}
+            onBack={() => setView('landing')}
+            triggerToast={triggerToast}
+          />
+        ) : (
+          <div className="flex h-screen w-full bg-background overflow-hidden relative">
           
           {/* Sidebar */}
           <aside
@@ -1434,10 +1428,21 @@ export default function HomeView() {
             <div className="p-4 mt-auto border-t border-outline-variant/10 space-y-3">
               <button
                 onClick={() => {
+                  setView('superadmin');
+                  triggerToast('Carregando Portal Super Admin SaaS...');
+                }}
+                className="w-full flex items-center gap-4 px-4 py-3 rounded-lg text-amber-500 hover:bg-amber-500/10 transition-all font-semibold border border-amber-500/10 cursor-pointer"
+              >
+                <Store className="w-5 h-5 shrink-0 text-amber-500" />
+                {!isSidebarCollapsed && <span className="font-label-md text-sm">Super Admin SaaS</span>}
+              </button>
+
+              <button
+                onClick={() => {
                   setView('landing');
                   triggerToast('Retornando para a Landing Page principal.');
                 }}
-                className="w-full flex items-center gap-4 px-4 py-3 rounded-lg text-primary hover:bg-primary/10 transition-all font-semibold"
+                className="w-full flex items-center gap-4 px-4 py-3 rounded-lg text-primary hover:bg-primary/10 transition-all font-semibold cursor-pointer"
               >
                 <LogOut className="w-5 h-5 shrink-0 text-primary rotate-180" />
                 {!isSidebarCollapsed && <span className="font-label-md text-sm">Voltar ao Site</span>}
@@ -1447,16 +1452,21 @@ export default function HomeView() {
                 <div className="w-10 h-10 rounded-full border border-primary/20 relative shrink-0">
                   <Image
                     className="object-cover"
-                    alt="Carlos Mendes Admin"
-                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuBROnOnhXtc-pnvgIhPVQy9GHLQYXvXuhVA_c2NaS_qh_meVth3C4hSdJL4fow8IuMNOGVsiNJkO6tpos7nqWONUK0M98qVXF0DTJ3wWkeVP00kmLD7sWHV8DQLYBZJO3bhDKXp0hegJCHtM8WFuXYWDbrhvxZlGoIFQpvBcuqQshzwD2ELYN5kAdmKJ1mk6teH1w5o2bDEVN3o9VD_IMNILo1EA-a4d7L9mSZmwWKjsvb17Z9X6k07QQ09XulJemy6HCtBuXE7QIc"
+                    alt={currentUser?.user_metadata?.raw_name || "Membro da Equipe"}
+                    src={currentUser?.user_metadata?.role === 'barbeiro' 
+                      ? "https://lh3.googleusercontent.com/aida-public/AB6AXuBROnOnhXtc-pnvgIhPVQy9GHLQYXvXuhVA_c2NaS_qh_meVth3C4hSdJL4fow8IuMNOGVsiNJkO6tpos7nqWONUK0M98qVXF0DTJ3wWkeVP00kmLD7sWHV8DQLYBZJO3bhDKXp0hegJCHtM8WFuXYWDbrhvxZlGoIFQpvBcuqQshzwD2ELYN5kAdmKJ1mk6teH1w5o2bDEVN3o9VD_IMNILo1EA-a4d7L9mSZmwWKjsvb17Z9X6k07QQ09XulJemy6HCtBuXE7QIc"
+                      : "https://lh3.googleusercontent.com/aida-public/AB6AXuCEe6N8a7kDVK96OuNzsF8B1KlG92y_ceAS651-BNVdcjzMI5bIoXXe7ElRRl6p3YmMg2rYN_IKrCavgvVQEU-dQPk08YT-eybzYzc_RarN-iLQiWtLmAXK2RQDIRV_t3iOfmc3LSAevFw18xXiuK62dJ4e_fBF5yUSkgUZjIDYIZ6BaM-slmUSSSgXbqZfYCBIfkOuM2pCk2OknJ9EOEtQacPAbTIbiphLp58JgM-N7f0qU6O34Qk-r0as2ARNnlNL_8abA6fBY_U"
+                    }
                     fill
                     referrerPolicy="no-referrer"
                   />
                 </div>
                 {!isSidebarCollapsed && (
                   <div className="overflow-hidden text-left">
-                    <p className="font-label-md text-sm text-on-surface truncate">Carlos Mendes</p>
-                    <p className="text-[10px] text-on-surface-variant truncate">Administrador</p>
+                    <p className="font-label-md text-sm text-on-surface truncate">{currentUser?.user_metadata?.raw_name || "Membro Equipe"}</p>
+                    <p className="text-[10px] text-on-surface-variant truncate uppercase tracking-widest font-bold">
+                      {currentUser?.user_metadata?.role || "Gerente"}
+                    </p>
                   </div>
                 )}
               </div>
@@ -1488,6 +1498,26 @@ export default function HomeView() {
 
               {/* Dynamic current date selector */}
               <div className="flex items-center gap-3">
+                {/* Supabase Status Indicator Wrapper */}
+                <button
+                  onClick={() => {
+                    setIsSqlModalOpen(true);
+                    triggerToast('Painel de Configuração SQL do Supabase carregado.');
+                  }}
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-full border text-xs font-bold uppercase transition-all shrink-0 cursor-pointer hover:scale-[1.02] ${
+                    supabaseSync.connected
+                      ? 'bg-emerald-500/10 hover:bg-emerald-500/15 text-emerald-400 border-emerald-500/20'
+                      : 'bg-amber-500/10 hover:bg-amber-500/15 text-ring-amber-500 text-amber-500 border-amber-500/20'
+                  }`}
+                  title="Visão Geral do banco Supabase local / nuvem"
+                >
+                  <span className={`w-2 h-2 rounded-full ${supabaseSync.connected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                  <span className="hidden sm:inline">
+                    {supabaseSync.connected ? 'Supabase Ativo' : 'Banco Setup'}
+                  </span>
+                  <span className="sm:hidden font-mono text-[10px]">DB Sync</span>
+                </button>
+
                 <button
                   onClick={() => triggerToast('O calendário operacional foi sincronizado para hoje.')}
                   className="flex items-center gap-2 px-4 py-2 rounded-full glass-card text-on-surface-variant font-label-md hover:text-primary active:scale-95 text-xs font-semibold shrink-0"
@@ -1503,9 +1533,16 @@ export default function HomeView() {
                     <Bell className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => {
-                      setView('landing');
-                      triggerToast('Sessão encerrada. Bem-vindo de volta ao portal de clientes!');
+                    onClick={async () => {
+                      try {
+                        const { error } = await supabase.auth.signOut();
+                        if (error) throw error;
+                        triggerToast('Sessão encerrada com sucesso!');
+                        setView('landing');
+                      } catch (err: any) {
+                        triggerToast(`Erro ao sair: ${err.message || err}`);
+                        setView('landing');
+                      }
                     }}
                     className="p-2 rounded-full glass-card hover:text-red-400 transition-all font-semibold text-xs flex items-center gap-1"
                     title="Sair como Administrador"
@@ -1626,7 +1663,7 @@ export default function HomeView() {
                     Ticket médio
                   </p>
                   <h3 className="text-headline-md font-bold font-display text-on-surface mt-1">
-                    € {averageTicketBase.toFixed(2)}
+                    € {averageTicket.toFixed(2)}
                   </h3>
                   <div className="mt-4 h-12 w-full relative z-10">
                     <svg className="w-full h-full stroke-purple-500 fill-none stroke-2" viewBox="0 0 100 30">
@@ -1645,7 +1682,7 @@ export default function HomeView() {
                     <div>
                       <h4 className="text-headline-sm font-semibold text-on-surface">Faturamento Semanal</h4>
                       <p className="text-body-sm text-on-surface-variant">
-                        <span className="text-green-500 font-bold">+14%</span> vs semana anterior (Clique nos nós para simulação de fluxo)
+                        Gráfico de entradas
                       </p>
                     </div>
                     <select
@@ -2114,6 +2151,7 @@ export default function HomeView() {
                   setActiveClientsCount={setActiveClientsCount}
                   setAuditLogs={setAuditLogs}
                   triggerToast={triggerToast}
+                  averageTicket={averageTicket}
                 />
               )}
 
@@ -2209,6 +2247,31 @@ export default function HomeView() {
             </div>
           </main>
         </div>
+      ))}
+
+      {view === 'superadmin' && (
+        !currentUser ? (
+          <AuthOverlay
+            targetView="superadmin"
+            onSuccess={(usr) => {
+              setCurrentUser(usr);
+              triggerToast('Painel de controle Super Admin SaaS carregado com sucesso!');
+            }}
+            onCancel={() => setView('landing')}
+            triggerToast={triggerToast}
+          />
+        ) : currentUser?.user_metadata?.role !== 'gerente' ? (
+          <AccessDeniedView
+            requiredRoles={['gerente']}
+            onBack={() => setView('landing')}
+            triggerToast={triggerToast}
+          />
+        ) : (
+          <SuperAdminView
+            onBackToMain={() => setView('landing')}
+            triggerToast={triggerToast}
+          />
+        )
       )}
 
       {/* MODAL DE AGENDAMENTO (SCHEDULING FLOW) */}
@@ -2481,6 +2544,98 @@ export default function HomeView() {
                 >
                   Adicionar Estoque
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* SUPABASE SQL INITIALIZATION DIALOG */}
+      <AnimatePresence>
+        {isSqlModalOpen && (
+          <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsSqlModalOpen(false)}
+              className="absolute inset-0 bg-background/80 backdrop-blur-md"
+            />
+            <motion.div
+              className="relative w-full max-w-2xl bg-[#111110] border border-white/10 p-6 md:p-8 rounded-2xl shadow-2xl z-20 space-y-6 max-h-[90vh] overflow-y-auto"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 15 }}
+            >
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="font-display-lg text-xl font-bold text-white flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Supabase Cloud Database
+                  </h3>
+                  <p className="text-stone-400 text-xs mt-1">
+                    Sua aplicação está conectada ao projeto Supabase <code className="text-amber-500 font-mono">hxpgjgdiimpudjttbhhh</code>.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsSqlModalOpen(false)}
+                  className="p-1 px-2.5 bg-neutral-900 border border-white/5 text-stone-400 hover:text-white rounded-lg text-xs"
+                >
+                  Fechar
+                </button>
+              </div>
+
+              {/* Table Sync Status Indicators */}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 bg-neutral-950/60 p-4 border border-white/5 rounded-xl">
+                {Object.entries({
+                  Clientes: 'clients',
+                  Barbeiros: 'barbers',
+                  Serviços: 'services',
+                  Agendamentos: 'appointments',
+                  Transações: 'transactions',
+                  Estoque: 'stock_items'
+                }).map(([label, dbName]) => {
+                  const checkWorking = supabaseSync.connected;
+                  return (
+                    <div key={dbName} className="flex items-center gap-2.5 text-xs">
+                      <div className={`w-2 h-2 rounded-full ${checkWorking ? 'bg-emerald-500 animate-pulse' : 'bg-stone-600'}`} />
+                      <div>
+                        <span className="block text-stone-300 font-bold">{label}</span>
+                        <span className="text-[10px] text-stone-500 font-mono">
+                          {checkWorking ? 'Sincronizado' : 'Aguardando'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* SQL instructions */}
+              <div className="space-y-3">
+                <div className="flex justify-between items-center text-sm font-bold text-stone-200">
+                  <span>Script de Migração SQL Supabase</span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(SUPABASE_SETUP_SQL);
+                      triggerToast('Script de configuração SQL copiado para a área de transferência!');
+                    }}
+                    className="text-xs bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/15 cursor-pointer font-semibold uppercase tracking-wider transition-all"
+                  >
+                    Copiar Script
+                  </button>
+                </div>
+                <p className="text-stone-400 text-xs leading-relaxed">
+                  Para utilizar seu banco reais por completo, abra o seu painel de controle do Supabase, clique em <strong className="text-white">SQL Editor</strong>, crie uma nova query, cole o script a seguir e clique em <strong className="text-emerald-400">Run</strong>.
+                </p>
+                <div className="bg-neutral-950 p-4 rounded-xl border border-white/5 relative overflow-hidden">
+                  <pre className="text-[11px] font-mono text-stone-400 max-h-48 overflow-y-auto custom-scrollbar select-text selection:bg-emerald-500/30">
+                    {SUPABASE_SETUP_SQL}
+                  </pre>
+                </div>
+              </div>
+
+              <div className="bg-emerald-500/5 p-4 rounded-xl border border-emerald-500/10 text-xs text-emerald-400/90 leading-relaxed">
+                <strong>💡 Recursos Ativos do Sincronizador:</strong> Ao realizar ações como agendamento de horários, reposição de estoque, trocas de status, e encerramentos de conta, o sistema sincronizará os dados de forma instantânea com a nuvem do Supabase, possuindo tolerância a falhas para continuar operando localmente se a rede oscilar.
               </div>
             </motion.div>
           </div>

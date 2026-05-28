@@ -3,6 +3,7 @@
 import React from 'react';
 import Image from 'next/image';
 import { motion } from 'motion/react';
+import { saveRow } from '../lib/supabase-service';
 import {
   Calendar,
   Trash2,
@@ -464,7 +465,8 @@ export function ClientesView({
   setClientFormState,
   setActiveClientsCount,
   setAuditLogs,
-  triggerToast
+  triggerToast,
+  averageTicket
 }: {
   clients: Client[];
   setClients: React.Dispatch<React.SetStateAction<Client[]>>;
@@ -477,6 +479,7 @@ export function ClientesView({
   setActiveClientsCount: React.Dispatch<React.SetStateAction<number>>;
   setAuditLogs: React.Dispatch<React.SetStateAction<string[]>>;
   triggerToast: (m: string) => void;
+  averageTicket: number;
 }) {
   return (
     <div className="space-y-6 text-left">
@@ -487,8 +490,8 @@ export function ClientesView({
           <div className="absolute right-4 bottom-4 p-2 bg-primary/10 rounded-full text-primary"><Users className="w-5 h-5" /></div>
         </div>
         <div className="glass-card p-5 rounded-2xl relative">
-          <p className="text-[10px] text-on-surface-variant font-bold uppercase">Faturamento Médio / Cli</p>
-          <h4 className="text-3xl font-display font-bold text-green-400 mt-1">€ 132,50</h4>
+          <p className="text-[10px] text-on-surface-variant font-bold uppercase">Ticket Médio / Cli</p>
+          <h4 className="text-3xl font-display font-bold text-green-400 mt-1">€ {averageTicket.toFixed(2)}</h4>
           <div className="absolute right-4 bottom-4 p-2 bg-green-500/10 rounded-full text-green-400"><TrendingUp className="w-5 h-5" /></div>
         </div>
         <div className="glass-card p-5 rounded-2xl relative">
@@ -1011,29 +1014,31 @@ export function ServicosView({
             </div>
 
             <div>
-              <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl flex items-center justify-between mb-4">
-                <div>
-                  <p className="text-[9px] text-on-surface-variant font-bold uppercase block">Valor Unitário</p>
-                  <span className="text-sm font-mono font-bold text-primary">€ {srv.price.toFixed(2)}</span>
-                </div>
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={() => {
-                      setServices((p) => p.map((x) => (x.id === srv.id ? { ...x, price: Math.max(10, x.price - 5) } : x)));
-                      triggerToast(`Preço reduzido em € 5!`);
+              <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl flex flex-col gap-2 mb-4">
+                <p className="text-[9px] text-on-surface-variant font-bold uppercase block">Valor Unitário (€)</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-primary font-mono">€</span>
+                  <input
+                    type="number"
+                    value={srv.price}
+                    onChange={(e) => {
+                      const newPrice = parseFloat(e.target.value) || 0;
+                      setServices((p) => p.map((x) => (x.id === srv.id ? { ...x, price: newPrice } : x)));
                     }}
-                    className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-bold text-xs text-on-surface"
-                  >
-                    -5
-                  </button>
+                    className="flex-1 bg-white/5 border border-white/10 rounded-lg p-2 text-sm font-mono font-bold text-primary outline-none focus:border-primary/50 transition-colors"
+                  />
                   <button
-                    onClick={() => {
-                      setServices((p) => p.map((x) => (x.id === srv.id ? { ...x, price: x.price + 5 } : x)));
-                      triggerToast(`Preço aumentado em € 5!`);
+                    onClick={async () => {
+                      const success = await saveRow('services', srv);
+                      if (success) {
+                        triggerToast('Valor salvo com sucesso!');
+                      } else {
+                        triggerToast('Erro ao salvar valor.');
+                      }
                     }}
-                    className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-bold text-xs text-on-surface"
+                    className="px-3 py-2 bg-primary/20 hover:bg-primary/30 text-primary rounded-lg font-bold text-xs shrink-0 transition-colors"
                   >
-                    +5
+                    Salvar
                   </button>
                 </div>
               </div>
@@ -1275,12 +1280,12 @@ export function ControleView({
             NÚCLEO DE CONTROLE E SIMULAÇÃO
           </h3>
           <p className="text-body-sm text-on-surface-variant">
-            Ajuste valores de tolerância interna, simule syslog e injete massa de testes mock para estressar os gráficos.
+            Ajuste valores de tolerância e parâmetros operacionais do sistema.
           </p>
         </div>
         <button
           onClick={() => {
-            setFinances({ faturamento: 48750, despesas: 18250 });
+            setFinances({ faturamento: 0, despesas: 0 });
             setAuditLogs([`[SUCESSO] ${new Date().toLocaleTimeString()} - Sistema operacional resetado para configurações originais de fábrica.`]);
             triggerToast('Saldos financeiros redefinidos!');
           }}
@@ -1318,51 +1323,10 @@ export function ControleView({
           </div>
 
           <div className="space-y-3 pt-4 border-t border-white/5">
-            <p className="text-[10px] text-primary uppercase font-bold tracking-wider">Injetores de Dados Sintéticos</p>
-            
-            <button
-              onClick={() => {
-                const names = ['Carlos Silva', 'Vitor Roque', 'Neymar Santos', 'Gabriel Casagrande', 'Rodrigo Faro', 'Celso C.', 'Murilo Benício'];
-                const servicesList = ['Corte Masculino', 'Combo Barba', 'Tratamento de Pele', 'Sobrancelha Gel'];
-                const pricesList = [50, 80, 40, 25];
-                const hoursList = ['09:00', '11:00', '13:00', '15:00', '17:00', '19:00'];
-                const bIds = barbers.map(b => b.id);
-
-                const injections: Appointment[] = Array.from({ length: 6 }).map((_, idx) => ({
-                  id: `syn-${idx}-${Date.now()}`,
-                  time: hoursList[idx % hoursList.length],
-                  clientName: names[idx % names.length],
-                  serviceName: servicesList[idx % servicesList.length],
-                  price: pricesList[idx % pricesList.length],
-                  status: 'Confirmado',
-                  avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAQa4toBZlARiJ3MHxhc3-BkXqP_IaeYjDedYr9nv-lgNRik0Idt9tb4fak4kyLCXjBfpJmiRlFy1Yz8S2J0iZAMgXXLut9eyfr5Iozqxuhnig_0dK2uVYGr6IYwISEeGSnk-LsK25Pzd4jbldvbgdoZgGRDuu4ws0eBmCg-V7PhH49mADOT1ntvzUBtaY-EZXEvE4DupKI7SqrfHvkBvxKUhqzA4rX-M55tj33swwbGk0oJxNzLt2suIkhwM9RmZ2VLvCWC_Ovb8M',
-                  barberId: bIds[idx % bIds.length],
-                }));
-
-                setAppointments((prev) => [...injections, ...prev]);
-                setAuditLogs((p) => [`[MOCK] ${new Date().toLocaleTimeString()} - 6 agendamentos sintéticos injetados no banco local.`, ...p]);
-                triggerToast('Injetado +6 agendamentos teste na Agenda!');
-              }}
-              className="w-full text-center py-2.5 bg-primary/10 hover:bg-primary/25 border border-primary/20 text-primary font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-1"
-            >
-              Injetar 6 Agendamentos Teste
-            </button>
-
-            <button
-              onClick={() => {
-                const desc = 'Compra emergencial de Navalhas de Barbear';
-                setCashTransactions((p) => [
-                  { id: `t-sys-${Date.now()}`, type: 'despesas', amount: 150, description: desc, date: '2026-05-28', category: 'Insumos' },
-                  ...p,
-                ]);
-                setFinances((prev: any) => ({ ...prev, despesas: prev.despesas + 150 }));
-                setAuditLogs((p) => [`[MOCK] ${new Date().toLocaleTimeString()} - Despesa injetada: € 150,00 - ${desc}`, ...p]);
-                triggerToast('Despesa teste de € 150,00 registrada!');
-              }}
-              className="w-full text-center py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-on-surface hover:text-white"
-            >
-              Simular Gasto de € 150,00
-            </button>
+            <p className="text-[10px] text-primary uppercase font-bold tracking-wider">Modo de Produção</p>
+            <p className="text-xs text-on-surface-variant font-mono">
+              Os injetores sintéticos foram desativados. Os logs espelham operações reais no esquema do banco de dados.
+            </p>
           </div>
         </div>
 
