@@ -153,10 +153,17 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 DECLARE
   new_company_id UUID;
+  company_name TEXT;
 BEGIN
-  -- 1. Criar uma nova empresa/tenant baseada no nome do usuário
+  -- 1. Criar uma nova empresa/tenant baseada no nome da barbearia, se informado, ou no nome do usuário.
+  company_name := COALESCE(
+    NEW.raw_user_meta_data->>'company_name',
+    NEW.raw_user_meta_data->>'raw_name',
+    'Minha Barbearia'
+  ) || ' - Workspace';
+
   INSERT INTO public.companies (name)
-  VALUES (COALESCE(NEW.raw_user_meta_data->>'raw_name', 'Minha Barbearia') || ' - Workspace')
+  VALUES (company_name)
   RETURNING id INTO new_company_id;
 
   -- 2. Criar o perfil do usuário vinculado à nova empresa
@@ -204,14 +211,15 @@ export async function getSyncStatus(): Promise<{ connected: boolean; message: st
     }
   };
 
-  if (!supabase) {
+  const client = supabase;
+  if (!client) {
     result.message = 'Supabase não definido';
     return result;
   }
 
   try {
     const checkPromises = Object.keys(result.tablesStatus).map(async (tableName) => {
-      const { error } = await supabase.from(tableName).select('id').limit(1);
+      const { error } = await client.from(tableName).select('id').limit(1);
       return { tableName, working: !error || error.code !== 'PGRST114' }; // PGRST114 is Table / Relation not found
     });
 
@@ -238,7 +246,7 @@ export async function getSyncStatus(): Promise<{ connected: boolean; message: st
 }
 
 // Global generic loading helper
-export async function loadTableData<T>(tableName: string, defaultData: T[] = []): Promise<{ data: T[]; source: 'supabase' }> {
+export async function loadTableData<T>(tableName: string, defaultData: T[] = []): Promise<{ data: T[]; source: 'supabase' | 'local' }> {
   if (supabase) {
     try {
       const { data, error } = await supabase.from(tableName).select('*');
@@ -251,7 +259,7 @@ export async function loadTableData<T>(tableName: string, defaultData: T[] = [])
     }
   }
 
-  return { data: defaultData, source: 'supabase' };
+  return { data: defaultData, source: 'local' };
 }
 
 // Global generic save/upsert helper

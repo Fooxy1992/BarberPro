@@ -125,9 +125,13 @@ export default function HomeView() {
 
   // Authentication States
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(() => Boolean(supabase));
 
   useEffect(() => {
+    if (!supabase) {
+      return;
+    }
+
     // 1. Fetch initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setCurrentUser(session?.user ?? null);
@@ -227,12 +231,20 @@ export default function HomeView() {
   const [loyaltyRewardSelection, setLoyaltyRewardSelection] = useState<string>('corte-gratis');
   const [auditLogs, setAuditLogs] = useState<string[]>([]);
 
-  // Load data from Supabase
+  // Load data from Supabase only after an authenticated session exists.
   useEffect(() => {
+    if (!supabase || !currentUser) {
+      return;
+    }
+
+    let isMounted = true;
+
     async function loadAllSupabaseData() {
       try {
         const syncStatus = await getSyncStatus();
-        
+
+        if (!isMounted) return;
+
         // 1. Services table - seed with real standard production services
         const resServices = await loadTableData<any>('services', []);
         setServices(resServices.data);
@@ -275,8 +287,13 @@ export default function HomeView() {
         console.error('Falha de inicialização ao conectar com Supabase:', err);
       }
     }
+
     loadAllSupabaseData();
-  }, []);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser]);
 
   // Active filters and query for appointments search on dashboard
   const [dashboardSearchQuery, setDashboardSearchQuery] = useState('');
@@ -1534,6 +1551,12 @@ export default function HomeView() {
                   </button>
                   <button
                     onClick={async () => {
+                      if (!supabase) {
+                        triggerToast('Supabase não configurado. Nenhuma sessão ativa foi encontrada.');
+                        setView('landing');
+                        return;
+                      }
+
                       try {
                         const { error } = await supabase.auth.signOut();
                         if (error) throw error;

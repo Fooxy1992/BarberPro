@@ -34,6 +34,14 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const ensureSupabaseClient = () => {
+    if (!supabase) {
+      throw new Error('Supabase não configurado. Defina NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY.');
+    }
+
+    return supabase;
+  };
+
   // Auto-login helpers to make grading/evaluating simple and ultra-fast
   const handleDemoSignIn = async (demoRole: 'gerente' | 'barbeiro') => {
     setIsSubmitting(true);
@@ -42,8 +50,10 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
     const demoName = demoRole === 'gerente' ? 'Gerente Demo' : 'Barbeiro Demo';
 
     try {
+      const client = ensureSupabaseClient();
+
       // 1. Try signing in
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await client.auth.signInWithPassword({
         email: demoEmail,
         password: demoPassword,
       });
@@ -57,7 +67,7 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
         ) {
           triggerToast(`Criando conta demonstrativa de "${demoRole}" em tempo real...`);
           
-          const { error: signUpError } = await supabase.auth.signUp({
+          const { error: signUpError } = await client.auth.signUp({
             email: demoEmail,
             password: demoPassword,
             options: {
@@ -73,7 +83,7 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
           }
 
           // Complete login
-          const { data: retryData, error: retryError } = await supabase.auth.signInWithPassword({
+          const { data: retryData, error: retryError } = await client.auth.signInWithPassword({
             email: demoEmail,
             password: demoPassword,
           });
@@ -107,8 +117,10 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
 
     setIsSubmitting(true);
     try {
+      const client = ensureSupabaseClient();
+
       if (activeTab === 'login') {
-        const { data, error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await client.auth.signInWithPassword({
           email,
           password,
         });
@@ -124,7 +136,7 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
           return;
         }
 
-        const { data, error } = await supabase.auth.signUp({
+        const { data, error } = await client.auth.signUp({
           email,
           password,
           options: {
@@ -372,6 +384,11 @@ export function AccessDeniedView({ requiredRoles, onBack, triggerToast }: Access
   const handleLogout = async () => {
     setIsLoggingOut(true);
     try {
+      if (!supabase) {
+        triggerToast('Supabase não configurado. Não há sessão ativa para encerrar.');
+        return;
+      }
+
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
       triggerToast('Sessão encerrada com sucesso!');

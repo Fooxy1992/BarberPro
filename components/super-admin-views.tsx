@@ -233,10 +233,14 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
   });
 
   // --- STATE FOR INVITES ---
-  const [invites, setInvites] = useState([
-    { id: 'inv-u9k2', link: 'barberpro-pi-pearl.vercel.app/onboard/u9k2', status: 'Active', expires: '2026-06-15', limit: 3, used: 1 },
-    { id: 'inv-b44c', link: 'barberpro-pi-pearl.vercel.app/onboard/b44c', status: 'Expired', expires: '2026-05-01', limit: 1, used: 0 },
-  ]);
+  const [invites, setInvites] = useState<Array<{
+    id: string;
+    link: string;
+    status: 'Active' | 'Expired';
+    expires: string;
+    limit: number;
+    used: number;
+  }>>([]);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
 
   // Derived properties for stats summary
@@ -354,12 +358,34 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
     triggerToast('Configuração global da plataforma BarberPro salva com sucesso na nuvem!');
   };
 
+  const handleCopyInviteLink = async (link: string) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      triggerToast('Link do convite copiado para a área de transferência!');
+    } catch {
+      triggerToast('Não foi possível copiar o link automaticamente.');
+    }
+  };
+
   const handleCreateInvite = () => {
-    const newId = `inv-${Math.floor(1000 + Math.random() * 9000).toString(16)}`;
-    setInvites([
-      { id: newId, link: `barberpro-pi-pearl.vercel.app/onboard/${newId}`, status: 'Active', expires: '2026-12-31', limit: 1, used: 0 },
-      ...invites
-    ]);
+    const baseOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://barberpro-pi-pearl.vercel.app';
+    const randomCode = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID().replace(/-/g, '').slice(0, 10)
+      : Math.floor(100000 + Math.random() * 900000).toString(16);
+    const newId = `inv-${randomCode}`;
+    const expiresAt = new Date();
+    expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+
+    const newInvite = {
+      id: newId,
+      link: `${baseOrigin}/onboard/${newId}`,
+      status: 'Active' as const,
+      expires: expiresAt.toLocaleDateString('pt-BR'),
+      limit: 1,
+      used: 0,
+    };
+
+    setInvites((previousInvites) => [newInvite, ...previousInvites]);
     setIsInviteModalOpen(false);
     triggerToast('Novo convite de onboarding gerado com sucesso!');
   };
@@ -1959,7 +1985,7 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
                           </td>
                           <td className="px-6 py-4 text-right">
                             <button
-                               onClick={() => triggerToast('Link copiado para a área de transferência!')}
+                               onClick={() => handleCopyInviteLink(inv.link)}
                                className="text-stone-400 hover:text-amber-500 p-1.5 bg-neutral-900 border border-white/5 rounded"
                                title="Copiar Link"
                              >

@@ -4,13 +4,13 @@ import React, { useState } from 'react';
 import { Scissors, CheckCircle2, User, Store, Mail, Lock, ArrowRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useParams, useRouter } from 'next/navigation';
+import { getSupabaseClient } from '../../../lib/supabase';
 
 export default function OnboardPage() {
   const params = useParams();
   const router = useRouter();
   const inviteId = params.id as string;
 
-  const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     shopName: '',
     ownerName: '',
@@ -21,18 +21,48 @@ export default function OnboardPage() {
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError('');
     setIsSubmitting(true);
-    // Simulate API call
-    setTimeout(() => {
-      setIsSubmitting(false);
+
+    try {
+      const client = getSupabaseClient();
+      const redirectUrl = typeof window !== 'undefined' ? `${window.location.origin}/` : undefined;
+
+      const { data, error } = await client.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          emailRedirectTo: redirectUrl,
+          data: {
+            raw_name: formData.ownerName,
+            role: 'gerente',
+            company_name: formData.shopName,
+            invite_id: inviteId,
+          },
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data.user) {
+        throw new Error('Não foi possível concluir o cadastro. Tente novamente.');
+      }
+
       setIsSuccess(true);
       setTimeout(() => {
         router.push('/');
-      }, 3000);
-    }, 1500);
+      }, 2500);
+    } catch (err: any) {
+      setSubmitError(err?.message || 'Falha ao concluir o onboarding.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (isSuccess) {
@@ -169,6 +199,12 @@ export default function OnboardPage() {
                 />
               </div>
             </div>
+
+            {submitError && (
+              <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+                {submitError}
+              </div>
+            )}
 
             <button
               type="submit"

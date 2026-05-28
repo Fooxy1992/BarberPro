@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS companies (
 
 -- 2. Tabela de Perfis de Usuário (Vínculo Auth -> Empresa)
 CREATE TABLE IF NOT EXISTS user_profiles (
-  id UUID PRIMARY KEY, -- Mapeia direto para auth.users.id
+  id UUID PRIMARY KEY,
   company_id UUID REFERENCES companies(id) NOT NULL,
   role TEXT DEFAULT 'barbeiro',
   raw_name TEXT,
@@ -122,22 +122,34 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ATRIBUIR GATILHO ÀS TABELAS PARA AUTO-INJETAR COMPANY_ID
+DROP TRIGGER IF EXISTS ensure_company_id_clients ON clients;
 CREATE TRIGGER ensure_company_id_clients BEFORE INSERT ON clients FOR EACH ROW EXECUTE FUNCTION set_company_id_on_insert();
+DROP TRIGGER IF EXISTS ensure_company_id_barbers ON barbers;
 CREATE TRIGGER ensure_company_id_barbers BEFORE INSERT ON barbers FOR EACH ROW EXECUTE FUNCTION set_company_id_on_insert();
+DROP TRIGGER IF EXISTS ensure_company_id_services ON services;
 CREATE TRIGGER ensure_company_id_services BEFORE INSERT ON services FOR EACH ROW EXECUTE FUNCTION set_company_id_on_insert();
+DROP TRIGGER IF EXISTS ensure_company_id_appointments ON appointments;
 CREATE TRIGGER ensure_company_id_appointments BEFORE INSERT ON appointments FOR EACH ROW EXECUTE FUNCTION set_company_id_on_insert();
+DROP TRIGGER IF EXISTS ensure_company_id_transactions ON transactions;
 CREATE TRIGGER ensure_company_id_transactions BEFORE INSERT ON transactions FOR EACH ROW EXECUTE FUNCTION set_company_id_on_insert();
+DROP TRIGGER IF EXISTS ensure_company_id_stock_items ON stock_items;
 CREATE TRIGGER ensure_company_id_stock_items BEFORE INSERT ON stock_items FOR EACH ROW EXECUTE FUNCTION set_company_id_on_insert();
 
 -- POLÍTICAS RLS (Row Level Security) - Isolamento de Multi-Tenant
 -- companies: O usuário pode ver a empresa dele e criar novas
+DROP POLICY IF EXISTS "Leitura de empresa" ON companies;
 CREATE POLICY "Leitura de empresa" ON companies FOR SELECT USING (id = get_user_company_id());
+DROP POLICY IF EXISTS "Criacao de empresa" ON companies;
 CREATE POLICY "Criacao de empresa" ON companies FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+DROP POLICY IF EXISTS "Atualizacao de empresa" ON companies;
 CREATE POLICY "Atualizacao de empresa" ON companies FOR UPDATE USING (id = get_user_company_id()) WITH CHECK (id = get_user_company_id());
 
 -- user_profiles: O usuário pode gerenciar seu próprio perfil
+DROP POLICY IF EXISTS "Leitura do proprio perfil" ON user_profiles;
 CREATE POLICY "Leitura do proprio perfil" ON user_profiles FOR SELECT USING (id = auth.uid());
+DROP POLICY IF EXISTS "Criacao de perfil" ON user_profiles;
 CREATE POLICY "Criacao de perfil" ON user_profiles FOR INSERT WITH CHECK (id = auth.uid());
+DROP POLICY IF EXISTS "Atualizacao de perfil" ON user_profiles;
 CREATE POLICY "Atualizacao de perfil" ON user_profiles FOR UPDATE USING (id = auth.uid()) WITH CHECK (id = auth.uid());
 
 -- FUNÇÃO E GATILHO PARA ONBOARDING MULTI-TENANT (SUPABASE AUTH)
@@ -179,10 +191,17 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
+
 -- Dados (Isolamento por company_id)
+DROP POLICY IF EXISTS "Isolamento Clientes" ON clients;
 CREATE POLICY "Isolamento Clientes" ON clients FOR ALL USING (company_id = get_user_company_id());
+DROP POLICY IF EXISTS "Isolamento Barbeiros" ON barbers;
 CREATE POLICY "Isolamento Barbeiros" ON barbers FOR ALL USING (company_id = get_user_company_id());
+DROP POLICY IF EXISTS "Isolamento Servicos" ON services;
 CREATE POLICY "Isolamento Servicos" ON services FOR ALL USING (company_id = get_user_company_id());
+DROP POLICY IF EXISTS "Isolamento Agendamentos" ON appointments;
 CREATE POLICY "Isolamento Agendamentos" ON appointments FOR ALL USING (company_id = get_user_company_id());
+DROP POLICY IF EXISTS "Isolamento Transacoes" ON transactions;
 CREATE POLICY "Isolamento Transacoes" ON transactions FOR ALL USING (company_id = get_user_company_id());
+DROP POLICY IF EXISTS "Isolamento Estoque" ON stock_items;
 CREATE POLICY "Isolamento Estoque" ON stock_items FOR ALL USING (company_id = get_user_company_id());
