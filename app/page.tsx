@@ -109,6 +109,18 @@ const ICON_MAP: Record<string, React.ComponentType<any>> = {
   package: Package,
 };
 
+// Super admin check: email must match NEXT_PUBLIC_SUPER_ADMIN_EMAIL env var,
+// or fall back to the hardcoded demo super admin email.
+const SUPER_ADMIN_EMAIL =
+  process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL?.trim().toLowerCase() ||
+  'superadmin@barberpro.com';
+
+function isSuperAdmin(user: any): boolean {
+  if (!user) return false;
+  const email = (user.email || '').toLowerCase();
+  return email === SUPER_ADMIN_EMAIL;
+}
+
 export default function HomeView() {
   // Navigation State
   const [view, setView] = useState<'landing' | 'dashboard' | 'superadmin'>('landing');
@@ -2283,7 +2295,7 @@ export default function HomeView() {
             onCancel={() => setView('landing')}
             triggerToast={triggerToast}
           />
-        ) : currentUser?.user_metadata?.role !== 'gerente' ? (
+        ) : !isSuperAdmin(currentUser) ? (
           <AccessDeniedView
             requiredRoles={['gerente']}
             onBack={() => setView('landing')}

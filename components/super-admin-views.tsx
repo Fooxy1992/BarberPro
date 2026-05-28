@@ -1,7 +1,20 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Image from 'next/image';
+import {
+  loadSaasShops,
+  saveSaasShop,
+  deleteSaasShop,
+  loadSaasCoupons,
+  saveSaasCoupon,
+  deleteSaasCoupon,
+  loadSaasInvites,
+  saveSaasInvite,
+  type SaasShop,
+  type SaasCoupon,
+  type SaasInvite,
+} from '../lib/supabase-service';
 import {
   Scissors,
   LayoutDashboard,
@@ -45,24 +58,7 @@ interface SuperAdminViewsProps {
 }
 
 // Interfaces
-interface Shop {
-  id: string;
-  name: string;
-  ownerName: string;
-  email: string;
-  location: string;
-  plan: 'Basic' | 'Professional' | 'Premium';
-  status: 'Active' | 'Pending' | 'Suspended';
-  mrr: number;
-}
-
-interface Coupon {
-  code: string;
-  discount: string;
-  used: number;
-  total: number;
-  expiry: string;
-}
+// (Shop, Coupon, Invite types are imported from supabase-service as SaasShop, SaasCoupon, SaasInvite)
 
 interface Ticket {
   id: string;
@@ -76,6 +72,19 @@ interface Ticket {
   messages: { sender: 'shop' | 'admin'; text: string; time: string }[];
 }
 
+// Default mock shops shown until Supabase loads (or if tables not yet created)
+const DEFAULT_SHOPS: SaasShop[] = [
+  { id: 'BP-7822', name: 'The Golden Blade', ownerName: 'Marcus Sterling', email: 'm.sterling@blade.com', location: 'London, UK', plan: 'Premium', status: 'Active', mrr: 249.00 },
+  { id: 'BP-4412', name: 'Precision Cuts', ownerName: 'Elena Rodriguez', email: 'e.rodriguez@precision.io', location: 'Madrid, ES', plan: 'Professional', status: 'Pending', mrr: 149.00 },
+  { id: 'BP-1099', name: 'Urban Fade Studio', ownerName: 'Jordan Banks', email: 'jordan@urbanfade.com', location: 'New York, US', plan: 'Basic', status: 'Suspended', mrr: 49.00 },
+  { id: 'BP-3321', name: 'Heritage Grooming', ownerName: 'Arthur Shelby', email: 'arthur@heritage.co', location: 'Berlin, DE', plan: 'Premium', status: 'Active', mrr: 249.00 },
+];
+
+const DEFAULT_COUPONS: SaasCoupon[] = [
+  { code: 'GOLDEN20', discount: '20% OFF', used: 412, total: 500, expiry: '12/26' },
+  { code: 'LAUNCH50', discount: '€50 FILET', used: 88, total: 100, expiry: '08/26' },
+];
+
 export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsProps) {
   // Sidebar tab state
   const [activeTab, setActiveTab] = useState<'dashboard' | 'shops' | 'subscriptions' | 'invites' | 'revenue' | 'support' | 'logs' | 'users' | 'settings' | 'monitor'>('dashboard');
@@ -84,48 +93,8 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
   const [settingsTab, setSettingsTab] = useState<'general' | 'security' | 'billing' | 'notifications'>('general');
 
   // --- STATE FOR SHOPS ---
-  const [shops, setShops] = useState<Shop[]>([
-    {
-      id: 'BP-7822',
-      name: 'The Golden Blade',
-      ownerName: 'Marcus Sterling',
-      email: 'm.sterling@blade.com',
-      location: 'London, UK',
-      plan: 'Premium',
-      status: 'Active',
-      mrr: 249.00
-    },
-    {
-      id: 'BP-4412',
-      name: 'Precision Cuts',
-      ownerName: 'Elena Rodriguez',
-      email: 'e.rodriguez@precision.io',
-      location: 'Madrid, ES',
-      plan: 'Professional',
-      status: 'Pending',
-      mrr: 149.00
-    },
-    {
-      id: 'BP-1099',
-      name: 'Urban Fade Studio',
-      ownerName: 'Jordan Banks',
-      email: 'jordan@urbanfade.com',
-      location: 'New York, US',
-      plan: 'Basic',
-      status: 'Suspended',
-      mrr: 49.00
-    },
-    {
-      id: 'BP-3321',
-      name: 'Heritage Grooming',
-      ownerName: 'Arthur Shelby',
-      email: 'arthur@heritage.co',
-      location: 'Berlin, DE',
-      plan: 'Premium',
-      status: 'Active',
-      mrr: 249.00
-    }
-  ]);
+  const [shops, setShops] = useState<SaasShop[]>([]);
+  const [shopsLoading, setShopsLoading] = useState(true);
 
   const [searchShop, setSearchShop] = useState('');
   const [filterPlan, setFilterPlan] = useState<'All' | 'Basic' | 'Professional' | 'Premium'>('All');
@@ -165,10 +134,7 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
     }
   });
 
-  const [coupons, setCoupons] = useState<Coupon[]>([
-    { code: 'GOLDEN20', discount: '20% OFF', used: 412, total: 500, expiry: '12/26' },
-    { code: 'LAUNCH50', discount: '€50 FILET', used: 88, total: 100, expiry: '08/26' }
-  ]);
+  const [coupons, setCoupons] = useState<SaasCoupon[]>([]);
   const [isNewCouponOpen, setIsNewCouponOpen] = useState(false);
   const [newCoupon, setNewCoupon] = useState({ code: '', discount: '20% OFF', total: 100, expiry: '12/26' });
 
@@ -243,6 +209,23 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
   }>>([]);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
 
+  // Load data from Supabase on mount
+  useEffect(() => {
+    async function loadSuperAdminData() {
+      setShopsLoading(true);
+      const loadedShops = await loadSaasShops(DEFAULT_SHOPS);
+      setShops(loadedShops);
+      setShopsLoading(false);
+
+      const loadedCoupons = await loadSaasCoupons(DEFAULT_COUPONS);
+      setCoupons(loadedCoupons);
+
+      const loadedInvites = await loadSaasInvites([]);
+      setInvites(loadedInvites);
+    }
+    loadSuperAdminData();
+  }, []);
+
   // Derived properties for stats summary
   const filteredShops = useMemo(() => {
     return shops.filter(shop => {
@@ -269,14 +252,14 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
   }, [tickets, activeTicketId]);
 
   // Actions handler
-  const handleRegisterShop = (e: React.FormEvent) => {
+  const handleRegisterShop = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newShop.name || !newShop.ownerName || !newShop.email) {
       triggerToast('Por favor, preencha todos os campos obrigatórios!');
       return;
     }
     const newId = `BP-${Math.floor(1000 + Math.random() * 9000)}`;
-    const shopToAdd: Shop = {
+    const shopToAdd: SaasShop = {
       id: newId,
       name: newShop.name,
       ownerName: newShop.ownerName,
@@ -286,6 +269,10 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
       status: newShop.status,
       mrr: parseFloat(newShop.mrr) || 0
     };
+    
+    // Save to Supabase
+    await saveSaasShop(shopToAdd);
+    
     setShops([shopToAdd, ...shops]);
     setIsRegisterModalOpen(false);
     triggerToast(`Barbearia "${newShop.name}" registrada com sucesso e ativa no plano SaaS!`);
@@ -301,32 +288,49 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
     });
   };
 
-  const handleDeleteShop = (id: string, name: string) => {
+  const handleDeleteShop = async (id: string, name: string) => {
+    // Delete from Supabase
+    await deleteSaasShop(id);
+    
     setShops(shops.filter(s => s.id !== id));
     triggerToast(`Barbearia "${name}" foi removida do cadastro da plataforma.`);
   };
 
-  const toggleShopStatus = (id: string, current: 'Active' | 'Pending' | 'Suspended') => {
+  const toggleShopStatus = async (id: string, current: 'Active' | 'Pending' | 'Suspended') => {
     const nextStatusMap: Record<'Active' | 'Pending' | 'Suspended', 'Active' | 'Pending' | 'Suspended'> = {
       Active: 'Suspended',
       Suspended: 'Active',
       Pending: 'Active'
     };
     const nextStatus = nextStatusMap[current];
+    
+    // Find the shop and update it
+    const shopToUpdate = shops.find(s => s.id === id);
+    if (shopToUpdate) {
+      const updatedShop = { ...shopToUpdate, status: nextStatus };
+      await saveSaasShop(updatedShop);
+    }
+    
     setShops(shops.map(s => s.id === id ? { ...s, status: nextStatus } : s));
     triggerToast(`Status da conveniada ajustado para: ${nextStatus}`);
   };
 
-  const handleCreateCoupon = (e: React.FormEvent) => {
+  const handleCreateCoupon = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCoupon.code) return;
-    setCoupons([...coupons, {
+    
+    const couponToAdd: SaasCoupon = {
       code: newCoupon.code.toUpperCase(),
       discount: newCoupon.discount,
       used: 0,
       total: newCoupon.total,
       expiry: newCoupon.expiry
-    }]);
+    };
+    
+    // Save to Supabase
+    await saveSaasCoupon(couponToAdd);
+    
+    setCoupons([...coupons, couponToAdd]);
     setIsNewCouponOpen(false);
     triggerToast(`Cupom promocional ${newCoupon.code.toUpperCase()} criado!`);
   };
@@ -367,7 +371,7 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
     }
   };
 
-  const handleCreateInvite = () => {
+  const handleCreateInvite = async () => {
     const baseOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://barberpro-pi-pearl.vercel.app';
     const randomCode = typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID().replace(/-/g, '').slice(0, 10)
@@ -376,7 +380,7 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
     const expiresAt = new Date();
     expiresAt.setFullYear(expiresAt.getFullYear() + 1);
 
-    const newInvite = {
+    const newInvite: SaasInvite = {
       id: newId,
       link: `${baseOrigin}/onboard/${newId}`,
       status: 'Active' as const,
@@ -384,6 +388,9 @@ export function SuperAdminView({ onBackToMain, triggerToast }: SuperAdminViewsPr
       limit: 1,
       used: 0,
     };
+
+    // Save to Supabase
+    await saveSaasInvite(newInvite);
 
     setInvites((previousInvites) => [newInvite, ...previousInvites]);
     setIsInviteModalOpen(false);

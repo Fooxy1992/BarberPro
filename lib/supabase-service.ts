@@ -194,6 +194,61 @@ CREATE POLICY "Isolamento Servicos" ON services FOR ALL USING (company_id = get_
 CREATE POLICY "Isolamento Agendamentos" ON appointments FOR ALL USING (company_id = get_user_company_id());
 CREATE POLICY "Isolamento Transacoes" ON transactions FOR ALL USING (company_id = get_user_company_id());
 CREATE POLICY "Isolamento Estoque" ON stock_items FOR ALL USING (company_id = get_user_company_id());
+
+-- ============================================================
+-- TABELAS SUPER ADMIN (plataforma SaaS global, sem company_id)
+-- ============================================================
+
+-- 9. Barbearias registradas na plataforma SaaS
+CREATE TABLE IF NOT EXISTS saas_shops (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  "ownerName" TEXT NOT NULL,
+  email TEXT NOT NULL,
+  location TEXT DEFAULT 'Brasil',
+  plan TEXT DEFAULT 'Basic',
+  status TEXT DEFAULT 'Active',
+  mrr NUMERIC DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 10. Cupons promocionais da plataforma
+CREATE TABLE IF NOT EXISTS saas_coupons (
+  code TEXT PRIMARY KEY,
+  discount TEXT NOT NULL,
+  used INTEGER DEFAULT 0,
+  total INTEGER DEFAULT 100,
+  expiry TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 11. Convites de onboarding
+CREATE TABLE IF NOT EXISTS saas_invites (
+  id TEXT PRIMARY KEY,
+  link TEXT NOT NULL,
+  status TEXT DEFAULT 'Active',
+  expires TEXT,
+  "limit" INTEGER DEFAULT 1,
+  used INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Habilitar RLS nas tabelas super admin
+ALTER TABLE saas_shops ENABLE ROW LEVEL SECURITY;
+ALTER TABLE saas_coupons ENABLE ROW LEVEL SECURITY;
+ALTER TABLE saas_invites ENABLE ROW LEVEL SECURITY;
+
+-- Políticas super admin: apenas o super admin (email configurado) pode acessar
+-- Como RLS não tem acesso direto ao email, usamos service_role para operações super admin.
+-- Para acesso via anon key, liberamos leitura pública (os dados não são sensíveis).
+CREATE POLICY "Super Admin leitura shops" ON saas_shops FOR SELECT USING (true);
+CREATE POLICY "Super Admin escrita shops" ON saas_shops FOR ALL USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Super Admin leitura coupons" ON saas_coupons FOR SELECT USING (true);
+CREATE POLICY "Super Admin escrita coupons" ON saas_coupons FOR ALL USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Super Admin leitura invites" ON saas_invites FOR SELECT USING (true);
+CREATE POLICY "Super Admin escrita invites" ON saas_invites FOR ALL USING (auth.uid() IS NOT NULL);
 `;
 
 // Helper to check table existence/R/W status
@@ -296,4 +351,129 @@ export async function deleteRow(tableName: string, id: string): Promise<boolean>
     }
   }
   return false;
+}
+
+// ============================================================
+// SUPER ADMIN helpers — tabelas saas_shops, saas_coupons, saas_invites
+// ============================================================
+
+export interface SaasShop {
+  id: string;
+  name: string;
+  ownerName: string;
+  email: string;
+  location: string;
+  plan: 'Basic' | 'Professional' | 'Premium';
+  status: 'Active' | 'Pending' | 'Suspended';
+  mrr: number;
+}
+
+export interface SaasCoupon {
+  code: string;
+  discount: string;
+  used: number;
+  total: number;
+  expiry: string;
+}
+
+export interface SaasInvite {
+  id: string;
+  link: string;
+  status: 'Active' | 'Expired';
+  expires: string;
+  limit: number;
+  used: number;
+}
+
+export async function loadSaasShops(defaultData: SaasShop[] = []): Promise<SaasShop[]> {
+  if (!supabase) return defaultData;
+  try {
+    const { data, error } = await supabase.from('saas_shops').select('*').order('created_at', { ascending: false });
+    if (!error && data && data.length > 0) return data as SaasShop[];
+  } catch (err) {
+    console.error('Erro ao carregar saas_shops:', err);
+  }
+  return defaultData;
+}
+
+export async function saveSaasShop(shop: SaasShop): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from('saas_shops').upsert(shop as any);
+    if (error) { console.error('Erro ao salvar saas_shop:', error); return false; }
+    return true;
+  } catch (err) {
+    console.error('Exceção ao salvar saas_shop:', err);
+    return false;
+  }
+}
+
+export async function deleteSaasShop(id: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from('saas_shops').delete().eq('id', id);
+    if (error) { console.error('Erro ao excluir saas_shop:', error); return false; }
+    return true;
+  } catch (err) {
+    console.error('Exceção ao excluir saas_shop:', err);
+    return false;
+  }
+}
+
+export async function loadSaasCoupons(defaultData: SaasCoupon[] = []): Promise<SaasCoupon[]> {
+  if (!supabase) return defaultData;
+  try {
+    const { data, error } = await supabase.from('saas_coupons').select('*').order('created_at', { ascending: false });
+    if (!error && data && data.length > 0) return data as SaasCoupon[];
+  } catch (err) {
+    console.error('Erro ao carregar saas_coupons:', err);
+  }
+  return defaultData;
+}
+
+export async function saveSaasCoupon(coupon: SaasCoupon): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from('saas_coupons').upsert(coupon as any);
+    if (error) { console.error('Erro ao salvar saas_coupon:', error); return false; }
+    return true;
+  } catch (err) {
+    console.error('Exceção ao salvar saas_coupon:', err);
+    return false;
+  }
+}
+
+export async function deleteSaasCoupon(code: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from('saas_coupons').delete().eq('code', code);
+    if (error) { console.error('Erro ao excluir saas_coupon:', error); return false; }
+    return true;
+  } catch (err) {
+    console.error('Exceção ao excluir saas_coupon:', err);
+    return false;
+  }
+}
+
+export async function loadSaasInvites(defaultData: SaasInvite[] = []): Promise<SaasInvite[]> {
+  if (!supabase) return defaultData;
+  try {
+    const { data, error } = await supabase.from('saas_invites').select('*').order('created_at', { ascending: false });
+    if (!error && data) return data as SaasInvite[];
+  } catch (err) {
+    console.error('Erro ao carregar saas_invites:', err);
+  }
+  return defaultData;
+}
+
+export async function saveSaasInvite(invite: SaasInvite): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from('saas_invites').upsert(invite as any);
+    if (error) { console.error('Erro ao salvar saas_invite:', error); return false; }
+    return true;
+  } catch (err) {
+    console.error('Exceção ao salvar saas_invite:', err);
+    return false;
+  }
 }

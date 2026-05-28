@@ -3,7 +3,7 @@
 import React from 'react';
 import Image from 'next/image';
 import { motion } from 'motion/react';
-import { saveRow } from '../lib/supabase-service';
+import { saveRow, deleteRow } from '../lib/supabase-service';
 import {
   Calendar,
   Trash2,
@@ -533,6 +533,7 @@ export function ClientesView({
                 loyaltyPoints: 0,
               };
               setClients((p) => [newCli, ...p]);
+              saveRow('clients', newCli);
               setActiveClientsCount((p) => p + 1);
               setAuditLogs((p) => [`[CRM] ${new Date().toLocaleTimeString()} - Cliente inserido: ${clientFormState.name}`, ...p]);
               triggerToast(`Cliente ${clientFormState.name} cadastrado com sucesso!`);
@@ -637,7 +638,14 @@ export function ClientesView({
                         <button
                           onClick={() => {
                             setClients((p) =>
-                              p.map((x) => (x.id === cli.id ? { ...x, loyaltyPoints: x.loyaltyPoints + 100 } : x))
+                              p.map((x) => {
+                                if (x.id === cli.id) {
+                                  const updated = { ...x, loyaltyPoints: x.loyaltyPoints + 100 };
+                                  saveRow('clients', updated);
+                                  return updated;
+                                }
+                                return x;
+                              })
                             );
                             setAuditLogs((p) => [`[CRM] ${new Date().toLocaleTimeString()} - Pontos concedidos manual para ${cli.name}.`, ...p]);
                             triggerToast(`Pontuação bonificada para ${cli.name}! (+100 PTS)`);
@@ -768,6 +776,7 @@ export function BarbeirosView({
                     avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAQa4toBZlARiJ3MHxhc3-BkXqP_IaeYjDedYr9nv-lgNRik0Idt9tb4fak4kyLCXjBfpJmiRlFy1Yz8S2J0iZAMgXXLut9eyfr5Iozqxuhnig_0dK2uVYGr6IYwISEeGSnk-LsK25Pzd4jbldvbgdoZgGRDuu4ws0eBmCg-V7PhH49mADOT1ntvzUBtaY-EZXEvE4DupKI7SqrfHvkBvxKUhqzA4rX-M55tj33swwbGk0oJxNzLt2suIkhwM9RmZ2VLvCWC_Ovb8M',
                   };
                   setBarbers((p) => [...p, newB]);
+                  saveRow('barbers', newB);
                   setAuditLogs((p) => [`[STAFF] ${new Date().toLocaleTimeString()} - Profissional cadastrado: ${newBarberForm.name}`, ...p]);
                   triggerToast(`Membro ${newBarberForm.name} adicionado ao time!`);
                   setNewBarberForm({ name: '', specialty: '', room: 'Cadeira 05' });
@@ -864,6 +873,7 @@ export function BarbeirosView({
                     <button
                       onClick={() => {
                         setBarbers((p) => p.filter((x) => x.id !== b.id));
+                        deleteRow('barbers', b.id);
                         triggerToast('Especialista deletado da base.');
                       }}
                       className="p-1 px-2 hover:bg-red-500/10 hover:text-red-400 rounded-lg text-on-surface-variant"
@@ -976,6 +986,7 @@ export function ServicosView({
                     iconKey: 'scissors',
                   };
                   setServices((p) => [...p, newS]);
+                  saveRow('services', newS);
                   setAuditLogs((p) => [`[SERVICES] ${new Date().toLocaleTimeString()} - Novo cadastro de serviço no Catálogo: ${newServiceForm.name}`, ...p]);
                   triggerToast(`Serviço "${newServiceForm.name}" adicionado ao Catálogo!`);
                   setNewServiceForm({ name: '', price: '', duration: '30 min', description: '' });
@@ -1052,6 +1063,7 @@ export function ServicosView({
                       return;
                     }
                     setServices((p) => p.filter((x) => x.id !== srv.id));
+                    deleteRow('services', srv.id);
                     triggerToast('Serviço removido.');
                   }}
                   className="text-[10px] text-on-surface-variant hover:text-red-400 font-bold flex items-center gap-0.5 cursor-pointer"
@@ -1449,6 +1461,7 @@ export function EstoqueView({
                     category: qty === 0 ? 'warning' : 'inventory',
                   };
                   setStockItems((p) => [...p, newItem]);
+                  saveRow('stock_items', newItem);
                   triggerToast(`Insumo "${newProductForm.name}" inserido com sucesso!`);
                   setAuditLogs((p) => [`[INV] ${new Date().toLocaleTimeString()} - Material catalogado: ${newProductForm.name}`, ...p]);
                   setNewProductForm({ name: '', quantity: 10 });
@@ -1517,8 +1530,10 @@ export function EstoqueView({
                           p.map((s) => {
                             if (s.id === item.id) {
                               const newQty = Math.max(0, s.quantity - 1);
-                              const newStat = newQty === 0 ? 'Estoque crítico' : newQty < 3 ? 'Estoque baixo' : 'Estoque normal';
-                              return { ...s, quantity: newQty, status: newStat };
+                              const newStat: StockItem['status'] = newQty === 0 ? 'Estoque crítico' : newQty < 3 ? 'Estoque baixo' : 'Estoque normal';
+                              const updated: StockItem = { ...s, quantity: newQty, status: newStat };
+                              saveRow('stock_items', updated);
+                              return updated;
                             }
                             return s;
                           })
@@ -1541,6 +1556,7 @@ export function EstoqueView({
                       <button
                         onClick={() => {
                           setStockItems((p) => p.filter((x) => x.id !== item.id));
+                          deleteRow('stock_items', item.id);
                           triggerToast('Produto excluído.');
                         }}
                         className="text-on-surface-variant hover:text-red-400 transition-colors"
@@ -1656,7 +1672,14 @@ export function FidelizacaoView({
                             return;
                           }
                           setClients((p) =>
-                            p.map((x) => (x.id === cli.id ? { ...x, loyaltyPoints: x.loyaltyPoints - cost } : x))
+                            p.map((x) => {
+                              if (x.id === cli.id) {
+                                const updated = { ...x, loyaltyPoints: x.loyaltyPoints - cost };
+                                saveRow('clients', updated);
+                                return updated;
+                              }
+                              return x;
+                            })
                           );
                           setAuditLogs((p) => [`[LOYALTY] ${new Date().toLocaleTimeString()} - Resgate de brinde com sucesso de ${cli.name}.`, ...p]);
                           triggerToast(`Resgatado com sucesso para ${cli.name}! (-${cost} PTS)`);
@@ -1673,7 +1696,14 @@ export function FidelizacaoView({
                       <button
                         onClick={() => {
                           setClients((p) =>
-                            p.map((x) => (x.id === cli.id ? { ...x, loyaltyPoints: x.loyaltyPoints + 100 } : x))
+                            p.map((x) => {
+                              if (x.id === cli.id) {
+                                const updated = { ...x, loyaltyPoints: x.loyaltyPoints + 100 };
+                                saveRow('clients', updated);
+                                return updated;
+                              }
+                              return x;
+                            })
                           );
                           setAuditLogs((p) => [`[LOYALTY] ${new Date().toLocaleTimeString()} - +100 PTS concedidos a ${cli.name}`, ...p]);
                           triggerToast(`Cortesia de +100 PTS adicionada para ${cli.name}!`);

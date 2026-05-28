@@ -10,13 +10,20 @@ import {
   Loader2,
   AlertTriangle,
   ArrowLeft,
-  CheckCircle2,
   Eye,
   EyeOff,
   UserCheck,
   Award
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+
+// Super admin email — must match NEXT_PUBLIC_SUPER_ADMIN_EMAIL or the default demo email
+const SUPER_ADMIN_EMAIL =
+  (typeof process !== 'undefined' &&
+    process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL?.trim().toLowerCase()) ||
+  'superadmin@barberpro.com';
+
+const SUPER_ADMIN_PASSWORD = 'SuperAdmin2026!';
 
 interface AuthOverlayProps {
   targetView: 'dashboard' | 'superadmin';
@@ -38,11 +45,10 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
     if (!supabase) {
       throw new Error('Supabase não configurado. Defina NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY.');
     }
-
     return supabase;
   };
 
-  // Auto-login helpers to make grading/evaluating simple and ultra-fast
+  // Auto-create and sign in a demo account on-the-fly
   const handleDemoSignIn = async (demoRole: 'gerente' | 'barbeiro') => {
     setIsSubmitting(true);
     const demoEmail = `${demoRole}@barberpro.com`;
@@ -52,45 +58,35 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
     try {
       const client = ensureSupabaseClient();
 
-      // 1. Try signing in
       const { data, error } = await client.auth.signInWithPassword({
         email: demoEmail,
         password: demoPassword,
       });
 
       if (error) {
-        // If user doesn't exist, handle sign up and login dynamically on-the-fly
         if (
           error.message.includes('Invalid login credentials') ||
           error.message.includes('User not found') ||
           error.message.includes('Email not confirmed')
         ) {
           triggerToast(`Criando conta demonstrativa de "${demoRole}" em tempo real...`);
-          
+
           const { error: signUpError } = await client.auth.signUp({
             email: demoEmail,
             password: demoPassword,
             options: {
-              data: {
-                raw_name: demoName,
-                role: demoRole,
-              },
+              data: { raw_name: demoName, role: demoRole },
             },
           });
 
-          if (signUpError) {
-            throw signUpError;
-          }
+          if (signUpError) throw signUpError;
 
-          // Complete login
           const { data: retryData, error: retryError } = await client.auth.signInWithPassword({
             email: demoEmail,
             password: demoPassword,
           });
 
-          if (retryError) {
-            throw retryError;
-          }
+          if (retryError) throw retryError;
 
           triggerToast(`Sandbox: Logado como ${demoRole === 'gerente' ? 'Gerente' : 'Barbeiro'}!`);
           onSuccess(retryData.user);
@@ -108,6 +104,61 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
     }
   };
 
+  // Auto-create and sign in the super admin account on-the-fly
+  const handleSuperAdminDemoSignIn = async () => {
+    setIsSubmitting(true);
+    try {
+      const client = ensureSupabaseClient();
+
+      const { data, error } = await client.auth.signInWithPassword({
+        email: SUPER_ADMIN_EMAIL,
+        password: SUPER_ADMIN_PASSWORD,
+      });
+
+      if (error) {
+        if (
+          error.message.includes('Invalid login credentials') ||
+          error.message.includes('User not found') ||
+          error.message.includes('Email not confirmed')
+        ) {
+          triggerToast('Criando conta Super Admin em tempo real...');
+
+          const { error: signUpError } = await client.auth.signUp({
+            email: SUPER_ADMIN_EMAIL,
+            password: SUPER_ADMIN_PASSWORD,
+            options: {
+              data: {
+                raw_name: 'Super Admin',
+                role: 'superadmin',
+              },
+            },
+          });
+
+          if (signUpError) throw signUpError;
+
+          const { data: retryData, error: retryError } = await client.auth.signInWithPassword({
+            email: SUPER_ADMIN_EMAIL,
+            password: SUPER_ADMIN_PASSWORD,
+          });
+
+          if (retryError) throw retryError;
+
+          triggerToast('Super Admin criado e autenticado com sucesso!');
+          onSuccess(retryData.user);
+        } else {
+          throw error;
+        }
+      } else {
+        triggerToast('Super Admin autenticado com sucesso!');
+        onSuccess(data.user);
+      }
+    } catch (err: any) {
+      triggerToast(`Falha na autenticação Super Admin: ${err.message || err}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
@@ -120,13 +171,8 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
       const client = ensureSupabaseClient();
 
       if (activeTab === 'login') {
-        const { data, error } = await client.auth.signInWithPassword({
-          email,
-          password,
-        });
-
+        const { data, error } = await client.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        
         triggerToast('Autenticação realizada com sucesso!');
         onSuccess(data.user);
       } else {
@@ -140,22 +186,17 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
           email,
           password,
           options: {
-            data: {
-              raw_name: fullName,
-              role: role,
-            },
+            data: { raw_name: fullName, role },
           },
         });
 
         if (error) throw error;
 
-        // Note: is email confirmation required? If not, we can log in right away or ask user to log in
         if (data.session) {
           triggerToast('Conta criada e logada com sucesso!');
           onSuccess(data.user);
         } else {
           triggerToast('Cadastro efetuado! Caso seja necessário, verifique seu email.');
-          // Auto fill login fields and flip tab
           setActiveTab('login');
         }
       }
@@ -166,6 +207,8 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
     }
   };
 
+  const isSuperAdminView = targetView === 'superadmin';
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-xl p-4 overflow-y-auto">
       <motion.div
@@ -173,7 +216,7 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
         animate={{ opacity: 1, scale: 1, y: 0 }}
         className="w-full max-w-md bg-[#111110] border border-white/5 rounded-2xl shadow-2xl p-6 md:p-8 space-y-6 relative overflow-hidden"
       >
-        {/* Decorative background ambient dots */}
+        {/* Decorative background */}
         <div className="absolute -top-16 -right-16 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-16 -left-16 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
 
@@ -186,48 +229,62 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
           Voltar ao site
         </button>
 
-        {/* Lock Head Indicator */}
+        {/* Header */}
         <div className="text-center space-y-2">
-          <div className="inline-flex p-3 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-full">
-            <Lock className="w-6 h-6 animate-pulse" />
+          <div className={`inline-flex p-3 rounded-full border ${isSuperAdminView ? 'bg-amber-500/20 border-amber-500/40 text-amber-400' : 'bg-amber-500/10 border-amber-500/20 text-amber-500'}`}>
+            {isSuperAdminView ? <Shield className="w-6 h-6 animate-pulse" /> : <Lock className="w-6 h-6 animate-pulse" />}
           </div>
           <h2 className="font-serif text-2xl text-white font-medium">
-            {targetView === 'superadmin' ? 'Acesso Super Admin SaaS' : 'Painel Administrativo'}
+            {isSuperAdminView ? 'Acesso Super Admin SaaS' : 'Painel Administrativo'}
           </h2>
           <p className="text-stone-400 text-xs leading-relaxed max-w-sm mx-auto">
-            Esta é uma zona restrita para barbeiros e gerentes credenciados do <span className="text-amber-500 font-bold">BarberPro App</span>.
+            {isSuperAdminView
+              ? 'Zona restrita exclusiva para o administrador da plataforma '
+              : 'Zona restrita para barbeiros e gerentes credenciados do '}
+            <span className="text-amber-500 font-bold">BarberPro</span>.
           </p>
         </div>
 
-        {/* Tab switcher */}
-        <div className="flex bg-neutral-950/80 p-1 border border-white/5 rounded-xl gap-1">
-          <button
-            type="button"
-            onClick={() => setActiveTab('login')}
-            className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider cursor-pointer transition-all ${
-              activeTab === 'login'
-                ? 'bg-[#1c1c1a] text-white border border-white/5 shadow-md'
-                : 'text-stone-400 hover:text-white'
-            }`}
-          >
-            Entrar
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('register')}
-            className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider cursor-pointer transition-all ${
-              activeTab === 'register'
-                ? 'bg-[#1c1c1a] text-white border border-white/5 shadow-md'
-                : 'text-stone-400 hover:text-white'
-            }`}
-          >
-            Cadastrar-se
-          </button>
-        </div>
+        {/* Super admin hint box */}
+        {isSuperAdminView && (
+          <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-center space-y-1">
+            <p className="text-[10px] text-amber-500/80 font-bold uppercase tracking-wider">Credenciais Super Admin</p>
+            <p className="text-[11px] text-stone-300 font-mono">{SUPER_ADMIN_EMAIL}</p>
+            <p className="text-[10px] text-stone-500">Senha: {SUPER_ADMIN_PASSWORD}</p>
+          </div>
+        )}
 
-        {/* Form panel */}
+        {/* Tab switcher — hidden for super admin (login only) */}
+        {!isSuperAdminView && (
+          <div className="flex bg-neutral-950/80 p-1 border border-white/5 rounded-xl gap-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab('login')}
+              className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider cursor-pointer transition-all ${
+                activeTab === 'login'
+                  ? 'bg-[#1c1c1a] text-white border border-white/5 shadow-md'
+                  : 'text-stone-400 hover:text-white'
+              }`}
+            >
+              Entrar
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('register')}
+              className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider cursor-pointer transition-all ${
+                activeTab === 'register'
+                  ? 'bg-[#1c1c1a] text-white border border-white/5 shadow-md'
+                  : 'text-stone-400 hover:text-white'
+              }`}
+            >
+              Cadastrar-se
+            </button>
+          </div>
+        )}
+
+        {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
-          {activeTab === 'register' && (
+          {activeTab === 'register' && !isSuperAdminView && (
             <div className="space-y-1.5 text-left">
               <label className="block text-stone-300 text-xs font-bold uppercase tracking-wider">
                 Nome Completo
@@ -248,14 +305,14 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
 
           <div className="space-y-1.5 text-left">
             <label className="block text-stone-300 text-xs font-bold uppercase tracking-wider">
-              E-mail corporativo
+              E-mail
             </label>
             <div className="relative">
               <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-500" />
               <input
                 type="email"
                 required
-                placeholder="Ex: profissional@barberpro.com"
+                placeholder={isSuperAdminView ? SUPER_ADMIN_EMAIL : 'Ex: profissional@barberpro.com'}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full bg-neutral-950 border border-white/5 rounded-xl py-3 pl-10 pr-4 text-sm text-white placeholder-stone-600 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 transition-all font-sans"
@@ -264,11 +321,9 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
           </div>
 
           <div className="space-y-1.5 text-left">
-            <div className="flex justify-between items-center">
-              <label className="text-stone-300 text-xs font-bold uppercase tracking-wider">
-                Senha de acesso
-              </label>
-            </div>
+            <label className="text-stone-300 text-xs font-bold uppercase tracking-wider">
+              Senha de acesso
+            </label>
             <div className="relative">
               <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-500" />
               <input
@@ -289,7 +344,7 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
             </div>
           </div>
 
-          {activeTab === 'register' && (
+          {activeTab === 'register' && !isSuperAdminView && (
             <div className="space-y-2 text-left">
               <label className="block text-stone-300 text-xs font-bold uppercase tracking-wider">
                 Cargo / Perfil
@@ -333,7 +388,7 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Processando...
               </>
-            ) : activeTab === 'login' ? (
+            ) : activeTab === 'login' || isSuperAdminView ? (
               'Entrar no Sistema'
             ) : (
               'Salvar Credenciais'
@@ -341,31 +396,46 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
           </button>
         </form>
 
-        {/* Dynamic Grading Access Panel (Guarantees zero friction testing) */}
+        {/* Quick Access Panel */}
         <div className="pt-4 border-t border-white/5 space-y-3">
           <p className="text-[10px] text-stone-500 font-bold uppercase tracking-wider text-center">
-            Acesso Rápido - Avaliação Sandbox (Supabase Auth)
+            Acesso Rápido — Sandbox (Supabase Auth)
           </p>
-          <div className="grid grid-cols-2 gap-2">
+
+          {isSuperAdminView ? (
+            /* Super admin: single demo button */
             <button
-              onClick={() => handleDemoSignIn('gerente')}
+              onClick={handleSuperAdminDemoSignIn}
               disabled={isSubmitting}
-              className="py-2 px-3 bg-[#181817] hover:bg-[#20201f] border border-white/5 hover:border-amber-500/20 text-[10px] font-bold uppercase tracking-wider rounded-lg text-amber-400 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-              title="Entrar Instantaneamente como Gerente usando Supabase Autenticação"
+              className="w-full py-2 px-3 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 hover:border-amber-500/50 text-[10px] font-bold uppercase tracking-wider rounded-lg text-amber-400 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+              title="Entrar como Super Admin (cria conta automaticamente se não existir)"
             >
-              <Award className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              Demo Gerente
+              <Shield className="w-3.5 h-3.5 shrink-0" />
+              Demo Super Admin
             </button>
-            <button
-              onClick={() => handleDemoSignIn('barbeiro')}
-              disabled={isSubmitting}
-              className="py-2 px-3 bg-[#181817] hover:bg-[#20201f] border border-white/5 hover:border-amber-500/20 text-[10px] font-bold uppercase tracking-wider rounded-lg text-stone-300 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-              title="Entrar Instantaneamente como Barbeiro usando Supabase Autenticação"
-            >
-              <UserCheck className="w-3.5 h-3.5 text-stone-300 shrink-0" />
-              Demo Barbeiro
-            </button>
-          </div>
+          ) : (
+            /* Dashboard: gerente + barbeiro demo buttons */
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => handleDemoSignIn('gerente')}
+                disabled={isSubmitting}
+                className="py-2 px-3 bg-[#181817] hover:bg-[#20201f] border border-white/5 hover:border-amber-500/20 text-[10px] font-bold uppercase tracking-wider rounded-lg text-amber-400 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                title="Entrar como Gerente Demo"
+              >
+                <Award className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                Demo Gerente
+              </button>
+              <button
+                onClick={() => handleDemoSignIn('barbeiro')}
+                disabled={isSubmitting}
+                className="py-2 px-3 bg-[#181817] hover:bg-[#20201f] border border-white/5 hover:border-amber-500/20 text-[10px] font-bold uppercase tracking-wider rounded-lg text-stone-300 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                title="Entrar como Barbeiro Demo"
+              >
+                <UserCheck className="w-3.5 h-3.5 text-stone-300 shrink-0" />
+                Demo Barbeiro
+              </button>
+            </div>
+          )}
         </div>
       </motion.div>
     </div>
