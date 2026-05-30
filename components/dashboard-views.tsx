@@ -3,7 +3,8 @@
 import React from 'react';
 import Image from 'next/image';
 import { motion } from 'motion/react';
-import { saveRow, deleteRow } from '../lib/supabase-service';
+import { saveRow, deleteRow, loadSaasTickets, createSaasTicket, addTicketMessage, loadTicketMessages, updateTicketStatus, uploadImage, type SaasTicket, type TicketMessage } from '../lib/supabase-service';
+import { supabase } from '../lib/supabase';
 import {
   Calendar,
   Trash2,
@@ -27,7 +28,13 @@ import {
   RefreshCw,
   MoreVertical,
   CheckCircle2,
-  FileText
+  FileText,
+  LifeBuoy,
+  Send,
+  MessageSquare,
+  X,
+  Clock,
+  Edit3,
 } from 'lucide-react';
 
 interface Appointment {
@@ -354,15 +361,6 @@ export function AgendamentosView({
                     <tr key={appt.id} className="hover:bg-white/[0.01] transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full overflow-hidden border border-white/10 relative shrink-0">
-                            <Image
-                              className="object-cover rounded-full"
-                              alt={appt.clientName}
-                              src={appt.avatarUrl}
-                              fill
-                              referrerPolicy="no-referrer"
-                            />
-                          </div>
                           <p className="font-semibold text-on-surface text-xs">{appt.clientName}</p>
                         </div>
                       </td>
@@ -526,7 +524,7 @@ export function ClientesView({
                 id: `cli-${Date.now()}`,
                 name: clientFormState.name,
                 email: clientFormState.email || 'contato@generic.com',
-                phone: clientFormState.phone || '(11) 98888-7777',
+                phone: clientFormState.phone || '+351 912 000 000',
                 sales: 0,
                 spent: 0,
                 lastVisit: 'Sem Visitas',
@@ -568,7 +566,7 @@ export function ClientesView({
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="Ex: (11) 98765-4321"
+                  placeholder="Ex: +351 912 345 678"
                   value={clientFormState.phone}
                   onChange={(e) => setClientFormState((prev) => ({ ...prev, phone: e.target.value }))}
                   className="w-full bg-white/5 border border-white/10 rounded-lg p-2.5 text-xs text-on-surface"
@@ -679,6 +677,8 @@ export function BarbeirosView({
   barbers,
   setBarbers,
   appointments,
+  services,
+  setServices,
   isBarberFormExpanded,
   setIsBarberFormExpanded,
   newBarberForm,
@@ -692,6 +692,8 @@ export function BarbeirosView({
   barbers: Barber[];
   setBarbers: React.Dispatch<React.SetStateAction<Barber[]>>;
   appointments: Appointment[];
+  services: any[];
+  setServices: React.Dispatch<React.SetStateAction<any[]>>;
   isBarberFormExpanded: boolean;
   setIsBarberFormExpanded: (b: boolean) => void;
   newBarberForm: { name: string; specialty: string; room: string };
@@ -702,6 +704,27 @@ export function BarbeirosView({
   setAuditLogs: React.Dispatch<React.SetStateAction<string[]>>;
   triggerToast: (m: string) => void;
 }) {
+  const [avatarUploadUrl, setAvatarUploadUrl] = React.useState('');
+  const [isUploadingAvatar, setIsUploadingAvatar] = React.useState(false);
+  const avatarInputRef = React.useRef<HTMLInputElement>(null);
+  const [selectedServiceIds, setSelectedServiceIds] = React.useState<string[]>([]);
+
+  // Edit modal state
+  const [editingBarber, setEditingBarber] = React.useState<Barber | null>(null);
+  const [editForm, setEditForm] = React.useState<Partial<Barber>>({});
+  const [editAvatarUrl, setEditAvatarUrl] = React.useState('');
+  const [isEditUploadingAvatar, setIsEditUploadingAvatar] = React.useState(false);
+  const [editServiceIds, setEditServiceIds] = React.useState<string[]>([]);
+  const [isSavingEdit, setIsSavingEdit] = React.useState(false);
+  const editAvatarInputRef = React.useRef<HTMLInputElement>(null);
+
+  const openEditBarber = (b: Barber) => {
+    setEditingBarber(b);
+    setEditForm({ name: b.name, specialty: b.specialty, room: b.room });
+    setEditAvatarUrl(b.avatarUrl || '');
+    setEditServiceIds(services.filter(s => s.barber_id === b.id).map((s: any) => s.id));
+  };
+
   return (
     <div className="space-y-6 text-left">
       <div className="glass-card p-6 rounded-2xl flex flex-col lg:flex-row items-center justify-between gap-6">
@@ -727,6 +750,70 @@ export function BarbeirosView({
           <h3 className="text-sm font-bold text-primary uppercase tracking-wider flex items-center gap-1.5">
             <Smile className="w-4 h-4" /> Contratar Integrante da Equipe
           </h3>
+          {/* Avatar upload */}
+          <div className="flex items-center gap-4">
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setIsUploadingAvatar(true);
+                const path = `barber_${Date.now()}.${file.name.split('.').pop()}`;
+                const url = await uploadImage('avatars', file, path);
+                setIsUploadingAvatar(false);
+                if (url) setAvatarUploadUrl(url);
+                else triggerToast('Erro ao fazer upload do avatar.');
+                e.target.value = '';
+              }}
+            />
+            {avatarUploadUrl ? (
+              <img src={avatarUploadUrl} alt="Avatar" className="w-12 h-12 rounded-full object-cover border border-primary/30 shrink-0" />
+            ) : (
+              <div className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-on-surface-variant shrink-0">
+                <Users className="w-5 h-5" />
+              </div>
+            )}
+            <button
+              type="button"
+              disabled={isUploadingAvatar}
+              onClick={() => avatarInputRef.current?.click()}
+              className="text-xs font-bold text-primary hover:opacity-80 transition-opacity disabled:opacity-50"
+            >
+              {isUploadingAvatar ? 'A carregar...' : avatarUploadUrl ? 'Alterar foto' : 'Adicionar foto'}
+            </button>
+          </div>
+          {/* Services this barber offers */}
+          {services.length > 0 && (
+            <div className="space-y-2">
+              <label className="text-[10px] text-primary uppercase font-bold block">Serviços que presta</label>
+              <div className="flex flex-wrap gap-2">
+                {services.map(svc => {
+                  const checked = selectedServiceIds.includes(svc.id);
+                  return (
+                    <button
+                      key={svc.id}
+                      type="button"
+                      onClick={() => setSelectedServiceIds(p =>
+                        p.includes(svc.id) ? p.filter(id => id !== svc.id) : [...p, svc.id]
+                      )}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold border cursor-pointer transition-all ${
+                        checked
+                          ? 'bg-primary/15 border-primary/40 text-primary'
+                          : 'bg-white/5 border-white/10 text-on-surface-variant hover:border-white/20'
+                      }`}
+                    >
+                      <Scissors className="w-3 h-3" />
+                      {svc.name}
+                      {checked && <span className="ml-0.5">✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="space-y-1">
               <label className="text-[10px] text-primary uppercase font-bold">Nome do Barbeiro</label>
@@ -773,13 +860,26 @@ export function BarbeirosView({
                     status: 'Livre',
                     rating: 5.0,
                     reviewsCount: 1,
-                    avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAQa4toBZlARiJ3MHxhc3-BkXqP_IaeYjDedYr9nv-lgNRik0Idt9tb4fak4kyLCXjBfpJmiRlFy1Yz8S2J0iZAMgXXLut9eyfr5Iozqxuhnig_0dK2uVYGr6IYwISEeGSnk-LsK25Pzd4jbldvbgdoZgGRDuu4ws0eBmCg-V7PhH49mADOT1ntvzUBtaY-EZXEvE4DupKI7SqrfHvkBvxKUhqzA4rX-M55tj33swwbGk0oJxNzLt2suIkhwM9RmZ2VLvCWC_Ovb8M',
+                    avatarUrl: avatarUploadUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(newBarberForm.name)}&background=C89A63&color=111&size=128`,
                   };
                   setBarbers((p) => [...p, newB]);
                   saveRow('barbers', newB);
+                  // Link selected services to this barber
+                  if (selectedServiceIds.length > 0) {
+                    setServices(prev => prev.map(svc => {
+                      if (selectedServiceIds.includes(svc.id)) {
+                        const updated = { ...svc, barber_id: newB.id };
+                        saveRow('services', updated);
+                        return updated;
+                      }
+                      return svc;
+                    }));
+                  }
                   setAuditLogs((p) => [`[STAFF] ${new Date().toLocaleTimeString()} - Profissional cadastrado: ${newBarberForm.name}`, ...p]);
                   triggerToast(`Membro ${newBarberForm.name} adicionado ao time!`);
                   setNewBarberForm({ name: '', specialty: '', room: 'Cadeira 05' });
+                  setAvatarUploadUrl('');
+                  setSelectedServiceIds([]);
                   setIsBarberFormExpanded(false);
                 }}
                 className="w-full bg-primary hover:brightness-110 text-on-primary font-bold py-2.5 rounded-lg text-xs"
@@ -817,8 +917,10 @@ export function BarbeirosView({
               </div>
 
               <div className="space-y-2 pt-2">
-                {barbers.map((b, idx) => {
-                  const indyTotal = (idx === 0) ? 1150 : (idx === 1) ? 680 : 450;
+                {barbers.map((b) => {
+                  const indyTotal = appointments
+                    .filter((a) => a.barberId === b.id && a.status === 'Concluído')
+                    .reduce((sum, a) => sum + a.price, 0);
                   const comm = indyTotal * (barberCommission / 100);
                   return (
                     <div key={b.id} className="flex justify-between items-center p-2 rounded bg-white/[0.01] border border-white/5">
@@ -866,9 +968,15 @@ export function BarbeirosView({
                   <div className="flex gap-2 mt-4">
                     <button
                       onClick={() => handleToggleBarber(b.id)}
-                      className="w-full text-center py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold text-on-surface"
+                      className="flex-1 text-center py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold text-on-surface"
                     >
                       Alternar Status
+                    </button>
+                    <button
+                      onClick={() => openEditBarber(b)}
+                      className="p-1 px-2 hover:bg-primary/10 hover:text-primary rounded-lg text-on-surface-variant transition-colors"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={() => {
@@ -876,7 +984,7 @@ export function BarbeirosView({
                         deleteRow('barbers', b.id);
                         triggerToast('Especialista deletado da base.');
                       }}
-                      className="p-1 px-2 hover:bg-red-500/10 hover:text-red-400 rounded-lg text-on-surface-variant"
+                      className="p-1 px-2 hover:bg-red-500/10 hover:text-red-400 rounded-lg text-on-surface-variant transition-colors"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -887,6 +995,113 @@ export function BarbeirosView({
           </div>
         </div>
       </div>
+
+      {/* ── EDIT BARBER MODAL ── */}
+      {editingBarber && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="bg-surface-container-low border border-white/10 rounded-2xl p-6 w-full max-w-md space-y-5 relative">
+            <div className="flex justify-between items-center border-b border-white/5 pb-4">
+              <h3 className="text-sm font-bold text-primary uppercase tracking-wider">Editar Especialista</h3>
+              <button onClick={() => setEditingBarber(null)} className="p-1 px-2 hover:bg-white/5 rounded text-on-surface-variant"><X className="w-4 h-4" /></button>
+            </div>
+
+            {/* Avatar */}
+            <div className="flex items-center gap-4">
+              <input ref={editAvatarInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]; if (!file) return;
+                  setIsEditUploadingAvatar(true);
+                  const url = await uploadImage('avatars', file, `barber_${Date.now()}.${file.name.split('.').pop()}`);
+                  setIsEditUploadingAvatar(false);
+                  if (url) setEditAvatarUrl(url);
+                  else triggerToast('Erro no upload.');
+                  e.target.value = '';
+                }} />
+              {editAvatarUrl ? (
+                <img src={editAvatarUrl} alt="Avatar" className="w-12 h-12 rounded-full object-cover border border-primary/30 shrink-0" />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-on-surface-variant shrink-0">
+                  <Users className="w-5 h-5" />
+                </div>
+              )}
+              <button type="button" disabled={isEditUploadingAvatar} onClick={() => editAvatarInputRef.current?.click()}
+                className="text-xs font-bold text-primary hover:opacity-80 transition-opacity disabled:opacity-50">
+                {isEditUploadingAvatar ? 'A carregar...' : editAvatarUrl ? 'Alterar foto' : 'Adicionar foto'}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3">
+              {[
+                { key: 'name', label: 'Nome', placeholder: 'Ex: Pedro Henrique' },
+                { key: 'specialty', label: 'Especialidade', placeholder: 'Ex: Barba Clássica' },
+                { key: 'room', label: 'Cadeira / Espaço', placeholder: 'Ex: Cadeira 06' },
+              ].map(({ key, label, placeholder }) => (
+                <div key={key} className="space-y-1">
+                  <label className="text-[10px] text-primary uppercase font-bold">{label}</label>
+                  <input type="text" placeholder={placeholder}
+                    value={(editForm as any)[key] || ''}
+                    onChange={e => setEditForm(p => ({ ...p, [key]: e.target.value }))}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg p-2.5 text-xs text-on-surface focus:outline-none focus:border-primary/50" />
+                </div>
+              ))}
+            </div>
+
+            {/* Services */}
+            {services.length > 0 && (
+              <div className="space-y-2">
+                <label className="text-[10px] text-primary uppercase font-bold block">Serviços que presta</label>
+                <div className="flex flex-wrap gap-2">
+                  {services.map((svc: any) => {
+                    const checked = editServiceIds.includes(svc.id);
+                    return (
+                      <button key={svc.id} type="button"
+                        onClick={() => setEditServiceIds(p => p.includes(svc.id) ? p.filter(id => id !== svc.id) : [...p, svc.id])}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold border cursor-pointer transition-all ${checked ? 'bg-primary/15 border-primary/40 text-primary' : 'bg-white/5 border-white/10 text-on-surface-variant hover:border-white/20'}`}>
+                        <Scissors className="w-3 h-3" />{svc.name}{checked && ' ✓'}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setEditingBarber(null)}
+                className="flex-1 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-on-surface-variant hover:text-on-surface transition-colors">
+                Cancelar
+              </button>
+              <button disabled={isSavingEdit} onClick={async () => {
+                if (!editForm.name?.trim()) { triggerToast('Nome obrigatório.'); return; }
+                setIsSavingEdit(true);
+                const updated: Barber = {
+                  ...editingBarber,
+                  name: editForm.name!,
+                  specialty: editForm.specialty || editingBarber.specialty,
+                  room: editForm.room || editingBarber.room,
+                  avatarUrl: editAvatarUrl || editingBarber.avatarUrl,
+                };
+                setBarbers(p => p.map(b => b.id === updated.id ? updated : b));
+                await saveRow('barbers', updated);
+                // Update service links: remove from services no longer in list, add to new ones
+                const prevIds = services.filter((s: any) => s.barber_id === editingBarber.id).map((s: any) => s.id);
+                const toRemove = prevIds.filter((id: string) => !editServiceIds.includes(id));
+                const toAdd = editServiceIds.filter((id: string) => !prevIds.includes(id));
+                setServices(prev => prev.map((svc: any) => {
+                  if (toAdd.includes(svc.id)) { const u = { ...svc, barber_id: updated.id }; saveRow('services', u); return u; }
+                  if (toRemove.includes(svc.id)) { const u = { ...svc, barber_id: null }; saveRow('services', u); return u; }
+                  return svc;
+                }));
+                setIsSavingEdit(false);
+                setEditingBarber(null);
+                triggerToast(`${updated.name} atualizado!`);
+              }}
+                className="flex-1 bg-primary hover:brightness-110 text-on-primary font-bold py-2.5 rounded-xl text-xs disabled:opacity-50">
+                {isSavingEdit ? 'A guardar...' : 'Guardar Alterações'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -895,6 +1110,7 @@ export function BarbeirosView({
 export function ServicosView({
   services,
   setServices,
+  barbers,
   isServiceFormExpanded,
   setIsServiceFormExpanded,
   newServiceForm,
@@ -904,13 +1120,18 @@ export function ServicosView({
 }: {
   services: any[];
   setServices: React.Dispatch<React.SetStateAction<any[]>>;
+  barbers: { id: string; name: string; specialty: string }[];
   isServiceFormExpanded: boolean;
   setIsServiceFormExpanded: (b: boolean) => void;
-  newServiceForm: { name: string; price: string; duration: string; description: string };
-  setNewServiceForm: React.Dispatch<React.SetStateAction<{ name: string; price: string; duration: string; description: string }>>;
+  newServiceForm: { name: string; price: string; duration: string; description: string; barberId: string };
+  setNewServiceForm: React.Dispatch<React.SetStateAction<{ name: string; price: string; duration: string; description: string; barberId: string }>>;
   setAuditLogs: React.Dispatch<React.SetStateAction<string[]>>;
   triggerToast: (m: string) => void;
 }) {
+  const [editingSvc, setEditingSvc] = React.useState<any | null>(null);
+  const [editSvcForm, setEditSvcForm] = React.useState<any>({});
+  const [isSavingSvc, setIsSavingSvc] = React.useState(false);
+
   return (
     <div className="space-y-6 text-left">
       <div className="glass-card p-6 rounded-2xl flex flex-col lg:flex-row justify-between items-center gap-6">
@@ -936,7 +1157,7 @@ export function ServicosView({
           <h4 className="text-sm font-bold text-primary uppercase font-mono tracking-wider flex items-center gap-1">
             <Sparkles className="w-4 h-4" /> Cadastrar Novo Serviço Premium
           </h4>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="space-y-1">
               <label className="text-[10px] text-primary uppercase font-bold">Título do Serviço</label>
               <input
@@ -964,10 +1185,23 @@ export function ServicosView({
                 onChange={(e) => setNewServiceForm((p) => ({ ...p, duration: e.target.value }))}
                 className="w-full bg-surface-container-high border border-white/10 rounded-lg p-2.5 text-xs text-on-surface"
               >
-                <option value="30 min" className="bg-[#1a1a1a] text-[#e5e2e1]">30 minutos</option>
-                <option value="45 min" className="bg-[#1a1a1a] text-[#e5e2e1]">45 minutos</option>
-                <option value="60 min" className="bg-[#1a1a1a] text-[#e5e2e1]">1 hora</option>
-                <option value="90 min" className="bg-[#1a1a1a] text-[#e5e2e1]">1 hora e meia</option>
+                <option value="30 min" className="bg-[#18120D] text-[#F5F1EB]">30 minutos</option>
+                <option value="45 min" className="bg-[#18120D] text-[#F5F1EB]">45 minutos</option>
+                <option value="60 min" className="bg-[#18120D] text-[#F5F1EB]">1 hora</option>
+                <option value="90 min" className="bg-[#18120D] text-[#F5F1EB]">1 hora e meia</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] text-primary uppercase font-bold">Barbeiro Responsável</label>
+              <select
+                value={newServiceForm.barberId}
+                onChange={(e) => setNewServiceForm((p) => ({ ...p, barberId: e.target.value }))}
+                className="w-full bg-surface-container-high border border-white/10 rounded-lg p-2.5 text-xs text-on-surface"
+              >
+                <option value="" className="bg-[#18120D] text-[#F5F1EB]">Qualquer barbeiro</option>
+                {barbers.map(b => (
+                  <option key={b.id} value={b.id} className="bg-[#18120D] text-[#F5F1EB]">{b.name}</option>
+                ))}
               </select>
             </div>
             <div className="flex items-end">
@@ -984,12 +1218,13 @@ export function ServicosView({
                     price: parseFloat(newServiceForm.price),
                     description: newServiceForm.description || 'Tratamento estético premium para barba e cabelo.',
                     iconKey: 'scissors',
+                    barber_id: newServiceForm.barberId || null,
                   };
                   setServices((p) => [...p, newS]);
                   saveRow('services', newS);
                   setAuditLogs((p) => [`[SERVICES] ${new Date().toLocaleTimeString()} - Novo cadastro de serviço no Catálogo: ${newServiceForm.name}`, ...p]);
                   triggerToast(`Serviço "${newServiceForm.name}" adicionado ao Catálogo!`);
-                  setNewServiceForm({ name: '', price: '', duration: '30 min', description: '' });
+                  setNewServiceForm({ name: '', price: '', duration: '30 min', description: '', barberId: '' });
                   setIsServiceFormExpanded(false);
                 }}
                 className="w-full bg-primary hover:brightness-110 text-on-primary font-bold py-2.5 rounded-lg text-xs"
@@ -1019,9 +1254,14 @@ export function ServicosView({
                   {srv.duration}
                 </span>
               </div>
-              <p className="text-xs text-on-surface-variant leading-relaxed min-h-[32px] mb-4">
+              <p className="text-xs text-on-surface-variant leading-relaxed min-h-[32px] mb-2">
                 {srv.description}
               </p>
+              {srv.barber_id && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full mb-2">
+                  {barbers.find(b => b.id === srv.barber_id)?.name || 'Barbeiro'}
+                </span>
+              )}
             </div>
 
             <div>
@@ -1055,7 +1295,12 @@ export function ServicosView({
               </div>
 
               <div className="flex items-center justify-between pt-2 border-t border-white/5">
-                <span className="text-[9px] text-on-surface-variant font-mono">Refletido na interface pública</span>
+                <button
+                  onClick={() => { setEditingSvc(srv); setEditSvcForm({ name: srv.name, duration: srv.duration, description: srv.description, price: String(srv.price), barberId: srv.barber_id || '' }); }}
+                  className="text-[10px] text-on-surface-variant hover:text-primary font-bold flex items-center gap-0.5 cursor-pointer transition-colors"
+                >
+                  <Edit3 className="w-3.5 h-3.5" /> Editar
+                </button>
                 <button
                   onClick={() => {
                     if (services.length <= 1) {
@@ -1066,7 +1311,7 @@ export function ServicosView({
                     deleteRow('services', srv.id);
                     triggerToast('Serviço removido.');
                   }}
-                  className="text-[10px] text-on-surface-variant hover:text-red-400 font-bold flex items-center gap-0.5 cursor-pointer"
+                  className="text-[10px] text-on-surface-variant hover:text-red-400 font-bold flex items-center gap-0.5 cursor-pointer transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" /> Excluir
                 </button>
@@ -1075,6 +1320,78 @@ export function ServicosView({
           </div>
         ))}
       </div>
+
+      {/* ── EDIT SERVICE MODAL ── */}
+      {editingSvc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="bg-surface-container-low border border-white/10 rounded-2xl p-6 w-full max-w-md space-y-4 relative">
+            <div className="flex justify-between items-center border-b border-white/5 pb-4">
+              <h3 className="text-sm font-bold text-primary uppercase tracking-wider">Editar Serviço</h3>
+              <button onClick={() => setEditingSvc(null)} className="p-1 px-2 hover:bg-white/5 rounded text-on-surface-variant"><X className="w-4 h-4" /></button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 space-y-1">
+                <label className="text-[10px] text-primary uppercase font-bold">Nome</label>
+                <input type="text" value={editSvcForm.name || ''} onChange={e => setEditSvcForm((p: any) => ({ ...p, name: e.target.value }))}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg p-2.5 text-xs text-on-surface focus:outline-none focus:border-primary/50" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] text-primary uppercase font-bold">Preço (€)</label>
+                <input type="number" value={editSvcForm.price || ''} onChange={e => setEditSvcForm((p: any) => ({ ...p, price: e.target.value }))}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg p-2.5 text-xs text-on-surface focus:outline-none focus:border-primary/50" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] text-primary uppercase font-bold">Duração</label>
+                <select value={editSvcForm.duration || '30 min'} onChange={e => setEditSvcForm((p: any) => ({ ...p, duration: e.target.value }))}
+                  className="w-full bg-surface-container-high border border-white/10 rounded-lg p-2.5 text-xs text-on-surface">
+                  {['30 min','45 min','60 min','90 min'].map(d => <option key={d} value={d} className="bg-[#18120D]">{d}</option>)}
+                </select>
+              </div>
+              <div className="col-span-2 space-y-1">
+                <label className="text-[10px] text-primary uppercase font-bold">Descrição</label>
+                <textarea rows={2} value={editSvcForm.description || ''} onChange={e => setEditSvcForm((p: any) => ({ ...p, description: e.target.value }))}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg p-2.5 text-xs text-on-surface resize-none focus:outline-none focus:border-primary/50" />
+              </div>
+              <div className="col-span-2 space-y-1">
+                <label className="text-[10px] text-primary uppercase font-bold">Barbeiro Responsável</label>
+                <select value={editSvcForm.barberId || ''} onChange={e => setEditSvcForm((p: any) => ({ ...p, barberId: e.target.value }))}
+                  className="w-full bg-surface-container-high border border-white/10 rounded-lg p-2.5 text-xs text-on-surface">
+                  <option value="" className="bg-[#18120D]">Qualquer barbeiro</option>
+                  {barbers.map(b => <option key={b.id} value={b.id} className="bg-[#18120D]">{b.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setEditingSvc(null)}
+                className="flex-1 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-on-surface-variant hover:text-on-surface transition-colors">
+                Cancelar
+              </button>
+              <button disabled={isSavingSvc} onClick={async () => {
+                if (!editSvcForm.name?.trim()) { triggerToast('Nome obrigatório.'); return; }
+                setIsSavingSvc(true);
+                const updated = {
+                  ...editingSvc,
+                  name: editSvcForm.name,
+                  price: parseFloat(editSvcForm.price) || editingSvc.price,
+                  duration: editSvcForm.duration,
+                  description: editSvcForm.description,
+                  barber_id: editSvcForm.barberId || null,
+                };
+                setServices(p => p.map(s => s.id === updated.id ? updated : s));
+                await saveRow('services', updated);
+                setIsSavingSvc(false);
+                setEditingSvc(null);
+                triggerToast(`Serviço "${updated.name}" atualizado!`);
+              }}
+                className="flex-1 bg-primary hover:brightness-110 text-on-primary font-bold py-2.5 rounded-xl text-xs disabled:opacity-50">
+                {isSavingSvc ? 'A guardar...' : 'Guardar Alterações'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1172,9 +1489,9 @@ export function CaixaView({
             onChange={(e) => setTransactionTypeFilter(e.target.value as any)}
             className="bg-surface-container-high border border-white/10 rounded-lg text-xs text-on-surface px-4 py-2 cursor-pointer"
           >
-            <option value="Todos" className="bg-[#1a1a1a] text-[#e5e2e1]">Tudo</option>
-            <option value="faturamento" className="bg-[#1a1a1a] text-[#e5e2e1]">Entradas (+)</option>
-            <option value="despesas" className="bg-[#1a1a1a] text-[#e5e2e1]">Saídas (-)</option>
+            <option value="Todos" className="bg-[#18120D] text-[#F5F1EB]">Tudo</option>
+            <option value="faturamento" className="bg-[#18120D] text-[#F5F1EB]">Entradas (+)</option>
+            <option value="despesas" className="bg-[#18120D] text-[#F5F1EB]">Saídas (-)</option>
           </select>
           <button
             onClick={() => {
@@ -1642,10 +1959,10 @@ export function FidelizacaoView({
                   onChange={(e) => setLoyaltyRewardSelection(e.target.value)}
                   className="w-full bg-surface-container-high border border-white/10 rounded-lg p-2 mt-1 py-1.5 text-xs text-on-surface cursor-pointer focus:outline-none"
                 >
-                  <option value="corte-gratis" className="bg-[#1a1a1a] text-[#e5e2e1]">Corte de Cabelo Gratuito (100 PTS)</option>
-                  <option value="barba-premium" className="bg-[#1a1a1a] text-[#e5e2e1]">Toalete e Barbaterapia Quente (60 PTS)</option>
-                  <option value="lavagem" className="bg-[#1a1a1a] text-[#e5e2e1]">Finalização Modeladora Pomada (30 PTS)</option>
-                  <option value="combo-especial" className="bg-[#1a1a1a] text-[#e5e2e1]">Tratamento Estético Integrado (200 PTS)</option>
+                  <option value="corte-gratis" className="bg-[#18120D] text-[#F5F1EB]">Corte de Cabelo Gratuito (100 PTS)</option>
+                  <option value="barba-premium" className="bg-[#18120D] text-[#F5F1EB]">Toalete e Barbaterapia Quente (60 PTS)</option>
+                  <option value="lavagem" className="bg-[#18120D] text-[#F5F1EB]">Finalização Modeladora Pomada (30 PTS)</option>
+                  <option value="combo-especial" className="bg-[#18120D] text-[#F5F1EB]">Tratamento Estético Integrado (200 PTS)</option>
                 </select>
               </div>
               <div className="text-[9px] text-on-surface-variant max-w-[200px]">
@@ -1719,6 +2036,294 @@ export function FidelizacaoView({
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// SUPORTE VIEW — shop admin support desk
+// ============================================================
+interface SuporteViewProps {
+  shopId: string;
+  shopName: string;
+  userEmail?: string;
+  triggerToast: (msg: string) => void;
+}
+
+export function SuporteView({ shopId, shopName, userEmail, triggerToast }: SuporteViewProps) {
+  const [tickets, setTickets] = React.useState<SaasTicket[]>([]);
+  const [messages, setMessages] = React.useState<TicketMessage[]>([]);
+  const [activeId, setActiveId] = React.useState('');
+  const [replyText, setReplyText] = React.useState('');
+  const [loading, setLoading] = React.useState(true);
+  const [sending, setSending] = React.useState(false);
+  const [isNewOpen, setIsNewOpen] = React.useState(false);
+  const [newForm, setNewForm] = React.useState({ subject: '', priority: 'normal' as SaasTicket['priority'], body: '' });
+
+  React.useEffect(() => {
+    if (!shopId) { setLoading(false); return; }
+    loadSaasTickets(shopId).then(t => { setTickets(t); setLoading(false); });
+  }, [shopId]);
+
+
+  const messagesEndRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!activeId) { setMessages([]); return; }
+    loadTicketMessages(activeId).then(msgs => { setMessages(msgs); });
+  }, [activeId]);
+
+  // Auto-scroll to bottom on new messages
+  React.useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Realtime: per-ticket channel — recreated when active ticket changes
+  React.useEffect(() => {
+    if (!supabase || !activeId) return;
+    const ch = supabase
+      .channel(`shop-msgs-${activeId}`)
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'ticket_messages', filter: `ticket_id=eq.${activeId}` },
+        (payload) => {
+          const msg = payload.new as TicketMessage;
+          setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+        })
+      .subscribe();
+    return () => { supabase!.removeChannel(ch); };
+  }, [activeId]);
+
+  // Realtime: support_tickets — client-side filter by shopId
+  React.useEffect(() => {
+    if (!supabase || !shopId) return;
+    const ch = supabase
+      .channel('shop-suporte-tickets')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'support_tickets' },
+        (payload) => {
+          const t = payload.new as SaasTicket;
+          if (t.shop_id !== shopId) return;
+          setTickets(prev => prev.some(x => x.id === t.id) ? prev : [t, ...prev]);
+        })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'support_tickets' },
+        (payload) => {
+          const t = payload.new as SaasTicket;
+          if (t.shop_id !== shopId) return;
+          setTickets(prev => prev.map(x => x.id === t.id ? t : x));
+        })
+      .subscribe();
+    return () => { supabase!.removeChannel(ch); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shopId]);
+
+  const activeTicket = tickets.find(t => t.id === activeId) || null;
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newForm.subject.trim() || !newForm.body.trim()) return;
+    setSending(true);
+    const ticket = await createSaasTicket({ subject: newForm.subject.trim(), priority: newForm.priority, status: 'open', shop_id: shopId, shop_name: shopName, created_by: userEmail });
+    if (ticket) {
+      await addTicketMessage(ticket.id, 'shop', newForm.body.trim(), shopName);
+      setTickets(prev => [ticket, ...prev]);
+      setActiveId(ticket.id);
+      setIsNewOpen(false);
+      setNewForm({ subject: '', priority: 'normal', body: '' });
+      loadTicketMessages(ticket.id).then(setMessages);
+      triggerToast('Chamado enviado ao suporte.');
+    } else {
+      triggerToast('Erro ao criar chamado.');
+    }
+    setSending(false);
+  };
+
+  const handleReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!replyText.trim() || !activeId) return;
+    setSending(true);
+    const msg = await addTicketMessage(activeId, 'shop', replyText.trim(), shopName);
+    if (msg) {
+      setMessages(prev => [...prev, msg]);
+      setTickets(prev => prev.map(t => t.id === activeId ? { ...t, updated_at: msg.created_at } : t));
+      setReplyText('');
+    } else {
+      triggerToast('Erro ao enviar mensagem.');
+    }
+    setSending(false);
+  };
+
+  const priorityColors: Record<string, string> = {
+    urgent: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
+    high: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
+    normal: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+    low: 'text-stone-400 bg-stone-800 border-stone-700',
+  };
+  const priorityLabels: Record<string, string> = { urgent: 'Urgente', high: 'Alta', normal: 'Normal', low: 'Baixa' };
+  const statusColors: Record<string, string> = { open: 'text-indigo-400', in_progress: 'text-amber-500', resolved: 'text-green-400', closed: 'text-stone-500' };
+  const statusLabels: Record<string, string> = { open: 'Aberto', in_progress: 'Em Atendimento', resolved: 'Resolvido', closed: 'Fechado' };
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64 text-on-surface-variant text-sm">
+      <RefreshCw className="w-5 h-5 animate-spin mr-2" /> A carregar chamados...
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col lg:flex-row h-[76vh] gap-0 border border-outline-variant/20 rounded-2xl overflow-hidden">
+
+      {/* LEFT: ticket list */}
+      <div className="w-full lg:w-72 shrink-0 bg-surface-container-low border-r border-outline-variant/20 flex flex-col">
+        <div className="p-4 border-b border-outline-variant/20 flex justify-between items-center">
+          <h3 className="font-display text-sm font-bold text-on-surface flex items-center gap-2">
+            <LifeBuoy className="w-4 h-4 text-primary" /> Meus Chamados
+          </h3>
+          <button onClick={() => setIsNewOpen(true)}
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-[10px] font-bold uppercase cursor-pointer transition-all">
+            <Plus className="w-3 h-3" /> Novo
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto divide-y divide-outline-variant/10">
+          {tickets.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-40 text-on-surface-variant/50 text-xs text-center px-4">
+              <MessageSquare className="w-8 h-8 mb-2 opacity-30" />
+              <p>Sem chamados. Abra um se precisar de ajuda.</p>
+            </div>
+          )}
+          {tickets.map(t => (
+            <button key={t.id} onClick={() => setActiveId(t.id)}
+              className={`w-full text-left p-4 transition-all border-l-4 ${activeId === t.id ? 'border-primary bg-primary/5' : 'border-transparent hover:bg-white/5'}`}>
+              <div className="flex justify-between items-start mb-1">
+                <span className={`px-1.5 py-0.5 rounded border text-[8px] font-black uppercase ${priorityColors[t.priority] || ''}`}>{priorityLabels[t.priority] || t.priority}</span>
+                <span className="text-[9px] text-on-surface-variant font-mono">{new Date(t.created_at).toLocaleDateString('pt-BR')}</span>
+              </div>
+              <p className="text-xs font-semibold text-on-surface line-clamp-1 mb-1">{t.subject}</p>
+              <span className={`text-[10px] font-bold ${statusColors[t.status] || 'text-on-surface-variant'}`}>{statusLabels[t.status] || t.status}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* RIGHT: chat + new ticket form */}
+      <div className="flex-1 flex flex-col bg-surface-container-lowest">
+        {isNewOpen ? (
+          <div className="flex-1 p-6 overflow-y-auto">
+            <div className="max-w-lg mx-auto">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="font-display text-base font-bold text-on-surface">Abrir Chamado de Suporte</h3>
+                <button onClick={() => setIsNewOpen(false)} className="text-on-surface-variant hover:text-on-surface cursor-pointer"><X className="w-4 h-4" /></button>
+              </div>
+              <form onSubmit={handleCreate} className="space-y-4">
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-on-surface-variant tracking-wider block mb-1">Assunto *</label>
+                  <input value={newForm.subject} onChange={e => setNewForm(f => ({ ...f, subject: e.target.value }))} required
+                    placeholder="Descreva brevemente o problema..."
+                    className="w-full bg-surface-container border border-outline-variant/30 rounded-xl px-4 py-3 text-sm text-on-surface focus:outline-none focus:border-primary/50 placeholder:text-on-surface-variant/40" />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-on-surface-variant tracking-wider block mb-1">Prioridade</label>
+                  <select value={newForm.priority} onChange={e => setNewForm(f => ({ ...f, priority: e.target.value as SaasTicket['priority'] }))}
+                    className="w-full bg-surface-container border border-outline-variant/30 rounded-xl px-4 py-3 text-sm text-on-surface focus:outline-none">
+                    <option value="low">Baixa</option>
+                    <option value="normal">Normal</option>
+                    <option value="high">Alta</option>
+                    <option value="urgent">Urgente</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-on-surface-variant tracking-wider block mb-1">Descrição detalhada *</label>
+                  <textarea value={newForm.body} onChange={e => setNewForm(f => ({ ...f, body: e.target.value }))} required rows={5}
+                    placeholder="Descreva o problema com o máximo de detalhe possível..."
+                    className="w-full bg-surface-container border border-outline-variant/30 rounded-xl px-4 py-3 text-sm text-on-surface focus:outline-none focus:border-primary/50 resize-none placeholder:text-on-surface-variant/40" />
+                </div>
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setIsNewOpen(false)}
+                    className="flex-1 py-3 border border-outline-variant/30 rounded-xl text-sm font-bold text-on-surface-variant hover:text-on-surface cursor-pointer transition-all">
+                    Cancelar
+                  </button>
+                  <button type="submit" disabled={sending}
+                    className="flex-1 py-3 bg-primary hover:bg-primary/90 text-on-primary font-bold rounded-xl text-sm cursor-pointer disabled:opacity-60 transition-all">
+                    {sending ? 'A enviar...' : 'Enviar Chamado'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : !activeTicket ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-on-surface-variant/50 gap-4">
+            <LifeBuoy className="w-12 h-12 opacity-20" />
+            <p className="text-sm">Selecione um chamado ou abra um novo</p>
+            <button onClick={() => setIsNewOpen(true)}
+              className="px-5 py-2.5 bg-primary/10 text-primary border border-primary/20 rounded-xl text-sm font-bold cursor-pointer hover:bg-primary/20 transition-all">
+              + Novo Chamado
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Chat header */}
+            <div className="px-5 py-4 border-b border-outline-variant/20 bg-surface-container-low flex justify-between items-center shrink-0">
+              <div>
+                <h4 className="font-bold text-on-surface text-sm">{activeTicket.subject}</h4>
+                <div className="flex items-center gap-3 mt-0.5">
+                  <span className={`text-[10px] font-bold ${statusColors[activeTicket.status]}`}>{statusLabels[activeTicket.status]}</span>
+                  <span className="text-on-surface-variant/40 text-[10px]">·</span>
+                  <span className={`px-1.5 py-0.5 rounded border text-[8px] font-black uppercase ${priorityColors[activeTicket.priority]}`}>{priorityLabels[activeTicket.priority]}</span>
+                  <span className="text-on-surface-variant/40 text-[10px]">·</span>
+                  <span className="text-[10px] text-on-surface-variant font-mono flex items-center gap-1">
+                    <Clock className="w-3 h-3" />{new Date(activeTicket.updated_at).toLocaleDateString('pt-BR')}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {messages.length === 0 && (
+                <div className="text-center text-on-surface-variant/40 text-xs py-8">Sem mensagens ainda.</div>
+              )}
+              {messages.map(m => {
+                const isShop = m.sender === 'shop';
+                return (
+                  <div key={m.id} className={`flex gap-3 max-w-2xl ${isShop ? '' : 'ml-auto flex-row-reverse'}`}>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${isShop ? 'bg-primary text-on-primary' : 'bg-surface-container border border-outline-variant/30 text-on-surface-variant'}`}>
+                      {isShop ? shopName.slice(0, 2).toUpperCase() : 'SA'}
+                    </div>
+                    <div className="space-y-1 max-w-xs lg:max-w-sm">
+                      <div className={`p-3 rounded-xl text-sm leading-relaxed ${isShop ? 'bg-primary/10 text-on-surface border border-primary/15 rounded-tl-none' : 'bg-surface-container text-on-surface-variant border border-outline-variant/20 rounded-tr-none'}`}>
+                        {m.body}
+                      </div>
+                      <div className={`flex items-center gap-2 text-[10px] text-on-surface-variant/50 ${isShop ? '' : 'justify-end'}`}>
+                        <span>{m.sender_name || (isShop ? shopName : 'Suporte BarberPro')}</span>
+                        <span>·</span>
+                        <span>{new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Reply */}
+            <div className="p-4 border-t border-outline-variant/20 bg-surface-container-low shrink-0">
+              {activeTicket.status === 'resolved' || activeTicket.status === 'closed' ? (
+                <p className="text-center text-on-surface-variant/50 text-xs py-2">
+                  Chamado {statusLabels[activeTicket.status].toLowerCase()}. Abra um novo chamado se precisar de mais ajuda.
+                </p>
+              ) : (
+                <form onSubmit={handleReply} className="flex gap-2">
+                  <input value={replyText} onChange={e => setReplyText(e.target.value)}
+                    placeholder="Escreva a sua resposta..."
+                    className="flex-1 bg-surface-container border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary/50" />
+                  <button type="submit" disabled={sending || !replyText.trim()}
+                    className="px-4 bg-primary hover:bg-primary/90 text-on-primary rounded-xl font-bold flex items-center gap-2 cursor-pointer text-sm disabled:opacity-60 transition-all">
+                    <Send className="w-4 h-4" />
+                  </button>
+                </form>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
