@@ -226,10 +226,12 @@ CREATE TABLE IF NOT EXISTS saas_coupons (
 CREATE TABLE IF NOT EXISTS saas_invites (
   id TEXT PRIMARY KEY,
   link TEXT NOT NULL,
+  email TEXT,
   status TEXT DEFAULT 'Active',
   expires TEXT,
   "limit" INTEGER DEFAULT 1,
   used INTEGER DEFAULT 0,
+  used_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -362,10 +364,22 @@ export interface SaasShop {
   name: string;
   ownerName: string;
   email: string;
+  phone?: string;
   location: string;
   plan: 'Basic' | 'Professional' | 'Premium';
   status: 'Active' | 'Pending' | 'Suspended';
   mrr: number;
+  logo_url?: string;
+  company_id?: string;
+  approved_at?: string;
+  approved_by?: string;
+  rejected_at?: string;
+  notes?: string;
+  trial_start_at?: string;
+  trial_end_at?: string;
+  trial_days?: number;
+  plan_id?: string;
+  registered_at?: string;
 }
 
 export interface SaasCoupon {
@@ -379,6 +393,7 @@ export interface SaasCoupon {
 export interface SaasInvite {
   id: string;
   link: string;
+  email?: string;
   status: 'Active' | 'Expired';
   expires: string;
   limit: number;
@@ -476,4 +491,370 @@ export async function saveSaasInvite(invite: SaasInvite): Promise<boolean> {
     console.error('Exceção ao salvar saas_invite:', err);
     return false;
   }
+}
+
+// ============================================================
+// PLANS
+// ============================================================
+export interface SaasPlan {
+  id: string;
+  name: string;
+  description?: string;
+  price_monthly: number;
+  price_annual: number;
+  max_users: number;
+  max_barbers: number;
+  max_services: number;
+  max_bookings_per_month: number;
+  features: string[];
+  is_active: boolean;
+  created_at?: string;
+}
+
+export async function loadSaasPlans(): Promise<SaasPlan[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase.from('saas_plans').select('*').order('price_monthly', { ascending: true });
+    if (!error && data) return data as SaasPlan[];
+  } catch (err) { console.error('Erro ao carregar saas_plans:', err); }
+  return [];
+}
+
+export async function saveSaasPlan(plan: SaasPlan): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from('saas_plans').upsert(plan as any);
+    if (error) { console.error('Erro ao salvar saas_plan:', error); return false; }
+    return true;
+  } catch (err) { console.error('Exceção ao salvar saas_plan:', err); return false; }
+}
+
+export async function deleteSaasPlan(id: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from('saas_plans').delete().eq('id', id);
+    if (error) { console.error('Erro ao excluir saas_plan:', error); return false; }
+    return true;
+  } catch (err) { console.error('Exceção ao excluir saas_plan:', err); return false; }
+}
+
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+export interface SaasNotification {
+  id: string;
+  type: 'new_shop' | 'pending_approval' | 'trial_expiring' | 'trial_expired' | 'subscription_expired' | 'upgrade_request';
+  title: string;
+  message?: string;
+  shop_id?: string;
+  is_read: boolean;
+  created_at: string;
+}
+
+export async function loadSaasNotifications(): Promise<SaasNotification[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase.from('saas_notifications').select('*').order('created_at', { ascending: false }).limit(50);
+    if (!error && data) return data as SaasNotification[];
+  } catch (err) { console.error('Erro ao carregar saas_notifications:', err); }
+  return [];
+}
+
+export async function markNotificationRead(id: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from('saas_notifications').update({ is_read: true }).eq('id', id);
+    if (error) { console.error('Erro ao marcar notificação:', error); return false; }
+    return true;
+  } catch (err) { console.error('Exceção ao marcar notificação:', err); return false; }
+}
+
+export async function markAllNotificationsRead(): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from('saas_notifications').update({ is_read: true }).eq('is_read', false);
+    if (error) { console.error('Erro ao marcar todas notificações:', error); return false; }
+    return true;
+  } catch (err) { console.error('Exceção ao marcar todas notificações:', err); return false; }
+}
+
+// ============================================================
+// AUDIT LOGS
+// ============================================================
+export interface SaasAuditLog {
+  id: string;
+  action: string;
+  shop_id?: string;
+  shop_name?: string;
+  performed_by?: string;
+  details?: Record<string, any>;
+  created_at: string;
+}
+
+export async function loadSaasAuditLogs(shopId?: string): Promise<SaasAuditLog[]> {
+  if (!supabase) return [];
+  try {
+    let query = supabase.from('saas_audit_logs').select('*').order('created_at', { ascending: false }).limit(100);
+    if (shopId) query = query.eq('shop_id', shopId);
+    const { data, error } = await query;
+    if (!error && data) return data as SaasAuditLog[];
+  } catch (err) { console.error('Erro ao carregar saas_audit_logs:', err); }
+  return [];
+}
+
+// ============================================================
+// SHOP ACTIONS (via DB functions)
+// ============================================================
+export async function approveShop(shopId: string, adminEmail: string, trialDays = 14): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.rpc('approve_shop', { p_shop_id: shopId, p_admin_by: adminEmail, p_trial_days: trialDays });
+    if (error) { console.error('Erro ao aprovar shop:', error); return false; }
+    return true;
+  } catch (err) { console.error('Exceção ao aprovar shop:', err); return false; }
+}
+
+export async function rejectShop(shopId: string, adminEmail: string, notes?: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.rpc('reject_shop', { p_shop_id: shopId, p_admin_by: adminEmail, p_notes: notes ?? null });
+    if (error) { console.error('Erro ao rejeitar shop:', error); return false; }
+    return true;
+  } catch (err) { console.error('Exceção ao rejeitar shop:', err); return false; }
+}
+
+export async function suspendShop(shopId: string, adminEmail: string, notes?: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.rpc('suspend_shop', { p_shop_id: shopId, p_admin_by: adminEmail, p_notes: notes ?? null });
+    if (error) { console.error('Erro ao suspender shop:', error); return false; }
+    return true;
+  } catch (err) { console.error('Exceção ao suspender shop:', err); return false; }
+}
+
+export async function reactivateShop(shopId: string, adminEmail: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.rpc('reactivate_shop', { p_shop_id: shopId, p_admin_by: adminEmail });
+    if (error) { console.error('Erro ao reativar shop:', error); return false; }
+    return true;
+  } catch (err) { console.error('Exceção ao reativar shop:', err); return false; }
+}
+
+export async function extendTrial(shopId: string, adminEmail: string, extraDays: number): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.rpc('extend_trial', { p_shop_id: shopId, p_admin_by: adminEmail, p_extra_days: extraDays });
+    if (error) { console.error('Erro ao estender trial:', error); return false; }
+    return true;
+  } catch (err) { console.error('Exceção ao estender trial:', err); return false; }
+}
+
+export async function updateShopPlan(shopId: string, planId: string, adminEmail: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from('saas_shops').update({ plan_id: planId, plan: planId }).eq('id', shopId);
+    if (error) { console.error('Erro ao atualizar plano:', error); return false; }
+    await supabase.from('saas_audit_logs').insert({ action: 'UPDATE_PLAN', shop_id: shopId, performed_by: adminEmail, details: { plan_id: planId } });
+    return true;
+  } catch (err) { console.error('Exceção ao atualizar plano:', err); return false; }
+}
+
+export async function addShopNote(shopId: string, note: string, adminEmail: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from('saas_shops').update({ notes: note }).eq('id', shopId);
+    if (error) { console.error('Erro ao adicionar nota:', error); return false; }
+    await supabase.from('saas_audit_logs').insert({ action: 'ADD_NOTE', shop_id: shopId, performed_by: adminEmail, details: { note } });
+    return true;
+  } catch (err) { console.error('Exceção ao adicionar nota:', err); return false; }
+}
+
+// ============================================================
+// SHOP PAGES (public page config)
+// ============================================================
+export interface ShopPage {
+  id?: string;
+  company_id: string;
+  slug: string;
+  display_name?: string;
+  description?: string;
+  address?: string;
+  phone?: string;
+  whatsapp?: string;
+  contact_email?: string;
+  logo_url?: string;
+  cover_url?: string;
+  primary_color?: string;
+  secondary_color?: string;
+  instagram?: string;
+  facebook?: string;
+  google_maps_url?: string;
+  map_embed_url?: string;
+  is_published?: boolean;
+  working_hours?: Record<string, { open: string; close: string; active: boolean }>;
+  cancellation_policy?: string;
+  meta_title?: string;
+  meta_description?: string;
+}
+
+export async function loadShopPage(): Promise<ShopPage | null> {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.from('shop_pages').select('*').limit(1).maybeSingle();
+    if (!error && data) return data as ShopPage;
+
+    // No shop_page yet — try to auto-create from shop status
+    const shopStatus = await getShopStatusForUser();
+    if (!shopStatus) return null;
+
+    const slug = shopStatus.shop_name
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-');
+
+    const { data: created, error: createError } = await supabase
+      .from('shop_pages')
+      .upsert({ company_id: shopStatus.shop_id, slug, display_name: shopStatus.shop_name }, { onConflict: 'company_id' })
+      .select()
+      .maybeSingle();
+
+    if (createError || !created) return null;
+    return created as ShopPage;
+  } catch (err) { console.error('Erro ao carregar shop_page:', err); return null; }
+}
+
+export async function saveShopPage(page: Partial<ShopPage> & { company_id: string }): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from('shop_pages').upsert(page as any, { onConflict: 'company_id' });
+    if (error) { console.error('Erro ao salvar shop_page:', error); return false; }
+    return true;
+  } catch (err) { console.error('Exceção ao salvar shop_page:', err); return false; }
+}
+
+export async function updateShopSlug(companyId: string, newSlug: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { data, error } = await supabase.rpc('update_shop_slug', { p_company_id: companyId, p_new_slug: newSlug });
+    if (error) { console.error('Erro ao atualizar slug:', error); return false; }
+    return data === true;
+  } catch (err) { console.error('Exceção ao atualizar slug:', err); return false; }
+}
+
+// Get shop status for the currently authenticated user (for admin panel gate)
+export async function getShopStatusForUser(): Promise<{
+  shop_id: string; shop_name: string; status: string;
+  trial_end_at: string | null; trial_days: number; plan_id: string | null;
+} | null> {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.rpc('get_shop_status_for_user');
+    if (error || !data || data.length === 0) return null;
+    return data[0];
+  } catch (err) { console.error('Exceção ao obter status do shop:', err); return null; }
+}
+
+// ============================================================
+// SUPPORT TICKETS
+// ============================================================
+export interface SaasTicket {
+  id: string;
+  shop_id?: string;
+  shop_name?: string;
+  subject: string;
+  status: 'open' | 'in_progress' | 'resolved' | 'closed';
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+  resolved_at?: string;
+}
+
+export interface TicketMessage {
+  id: string;
+  ticket_id: string;
+  sender: 'shop' | 'admin';
+  sender_name?: string;
+  body: string;
+  created_at: string;
+}
+
+export async function loadSaasTickets(shopId?: string): Promise<SaasTicket[]> {
+  if (!supabase) return [];
+  try {
+    let q = supabase.from('support_tickets').select('*').order('updated_at', { ascending: false }).limit(200);
+    if (shopId) q = q.eq('shop_id', shopId);
+    const { data, error } = await q;
+    if (!error && data) return data as SaasTicket[];
+  } catch (err) { console.error('Erro ao carregar tickets:', err); }
+  return [];
+}
+
+export async function createSaasTicket(ticket: Omit<SaasTicket, 'id' | 'created_at' | 'updated_at'>): Promise<SaasTicket | null> {
+  if (!supabase) return null;
+  try {
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from('support_tickets')
+      .insert({ ...ticket, created_at: now, updated_at: now })
+      .select()
+      .single();
+    if (!error && data) return data as SaasTicket;
+  } catch (err) { console.error('Erro ao criar ticket:', err); }
+  return null;
+}
+
+export async function updateTicketStatus(ticketId: string, status: SaasTicket['status']): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const updates: Record<string, string> = { status, updated_at: new Date().toISOString() };
+    if (status === 'resolved' || status === 'closed') updates.resolved_at = new Date().toISOString();
+    const { error } = await supabase.from('support_tickets').update(updates).eq('id', ticketId);
+    return !error;
+  } catch (err) { console.error('Erro ao atualizar status:', err); }
+  return false;
+}
+
+export async function loadTicketMessages(ticketId: string): Promise<TicketMessage[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from('ticket_messages')
+      .select('*')
+      .eq('ticket_id', ticketId)
+      .order('created_at', { ascending: true });
+    if (!error && data) return data as TicketMessage[];
+  } catch (err) { console.error('Erro ao carregar mensagens:', err); }
+  return [];
+}
+
+export async function uploadImage(bucket: string, file: File, path: string): Promise<string | null> {
+  if (!supabase) return null;
+  try {
+    const { error } = await supabase.storage.from(bucket).upload(path, file, { upsert: true, contentType: file.type });
+    if (error) { console.error('Upload error:', error); return null; }
+    const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+    return data.publicUrl;
+  } catch (err) { console.error('Upload exception:', err); return null; }
+}
+
+export async function addTicketMessage(ticketId: string, sender: 'shop' | 'admin', body: string, senderName?: string): Promise<TicketMessage | null> {
+  if (!supabase) return null;
+  try {
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from('ticket_messages')
+      .insert({ ticket_id: ticketId, sender, body, sender_name: senderName, created_at: now })
+      .select()
+      .single();
+    if (!error && data) {
+      const newStatus = sender === 'admin' ? 'in_progress' : 'open';
+      await supabase.from('support_tickets')
+        .update({ updated_at: now, ...(sender === 'admin' ? { status: newStatus } : {}) })
+        .eq('id', ticketId);
+      return data as TicketMessage;
+    }
+  } catch (err) { console.error('Erro ao adicionar mensagem:', err); }
+  return null;
 }

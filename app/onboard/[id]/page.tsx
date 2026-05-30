@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Scissors, CheckCircle2, User, Store, Mail, Lock, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Scissors, CheckCircle2, User, Store, Mail, Lock, Phone, ArrowRight, AlertTriangle, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useParams, useRouter } from 'next/navigation';
 import { getSupabaseClient } from '../../../lib/supabase';
@@ -18,13 +18,51 @@ export default function OnboardPage() {
     password: '',
     phone: '',
   });
-  
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
+  // Invite validation state
+  const [inviteStatus, setInviteStatus] = useState<'loading' | 'valid' | 'invalid'>('loading');
+  const [inviteEmail, setInviteEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!inviteId) {
+      setInviteStatus('invalid');
+      return;
+    }
+
+    const validateInvite = async () => {
+      try {
+        const client = getSupabaseClient();
+        // Usa a função SECURITY DEFINER — funciona para utilizadores anónimos
+        // sem expor a tabela saas_invites directamente via RLS.
+        const { data, error } = await client
+          .rpc('validate_invite', { invite_id: inviteId });
+
+        if (error || !data || data.length === 0) {
+          setInviteStatus('invalid');
+          return;
+        }
+
+        const email: string | null = data[0]?.invite_email ?? null;
+        setInviteEmail(email);
+        setInviteStatus('valid');
+        if (email) {
+          setFormData((prev) => ({ ...prev, email }));
+        }
+      } catch {
+        setInviteStatus('invalid');
+      }
+    };
+
+    validateInvite();
+  }, [inviteId]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (inviteStatus !== 'valid') return;
     setSubmitError('');
     setIsSubmitting(true);
 
@@ -41,29 +79,62 @@ export default function OnboardPage() {
             raw_name: formData.ownerName,
             role: 'gerente',
             company_name: formData.shopName,
+            phone: formData.phone,
             invite_id: inviteId,
           },
         },
       });
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       if (!data.user) {
         throw new Error('Não foi possível concluir o cadastro. Tente novamente.');
       }
 
+      // Trigger handle_new_user marks invite as used atomically.
+      // Sign in immediately so user lands on /admin already authenticated.
+      const { error: signInError } = await client.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
       setIsSuccess(true);
       setTimeout(() => {
-        router.push('/');
-      }, 2500);
+        router.push(signInError ? '/' : '/admin');
+      }, 2000);
     } catch (err: any) {
       setSubmitError(err?.message || 'Falha ao concluir o onboarding.');
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  // Loading invite validation
+  if (inviteStatus === 'loading') {
+    return (
+      <div className="min-h-screen bg-[#0d0d0c] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+      </div>
+    );
+  }
+
+  // Invalid / used invite
+  if (inviteStatus === 'invalid') {
+    return (
+      <div className="min-h-screen bg-[#0d0d0c] flex flex-col items-center justify-center p-4">
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="bg-[#111110] border border-rose-500/20 p-8 rounded-2xl max-w-sm w-full text-center"
+        >
+          <div className="w-16 h-16 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-6 text-rose-500">
+            <AlertTriangle className="w-8 h-8" />
+          </div>
+          <h2 className="text-2xl font-serif text-stone-100 mb-2">Convite Inválido</h2>
+          <p className="text-stone-400 text-sm">Este link de convite não existe, já foi utilizado ou expirou. Contacte o administrador da plataforma.</p>
+        </motion.div>
+      </div>
+    );
+  }
 
   if (isSuccess) {
     return (
@@ -77,7 +148,7 @@ export default function OnboardPage() {
             <CheckCircle2 className="w-8 h-8" />
           </div>
           <h2 className="text-2xl font-serif text-stone-100 mb-2">Registo Concluído!</h2>
-          <p className="text-stone-400 text-sm mb-6">A sua barbearia foi configurada com sucesso. Redirecionando para o login...</p>
+          <p className="text-stone-400 text-sm mb-6">A sua barbearia foi configurada com sucesso. Redirecionando para o painel...</p>
         </motion.div>
       </div>
     );
@@ -179,6 +250,22 @@ export default function OnboardPage() {
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className="w-full bg-[#0a0a09] border border-white/10 rounded-xl py-3 pl-11 pr-4 text-sm text-stone-200 focus:outline-none focus:border-amber-500/50 transition-colors"
                   placeholder="gestao@barbearia.com"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] uppercase font-bold text-stone-500 tracking-wider ml-1">Telefone / WhatsApp</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Phone className="h-4 w-4 text-stone-600" />
+                </div>
+                <input
+                  type="tel"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  className="w-full bg-[#0a0a09] border border-white/10 rounded-xl py-3 pl-11 pr-4 text-sm text-stone-200 focus:outline-none focus:border-amber-500/50 transition-colors"
+                  placeholder="+351 912 345 678"
                 />
               </div>
             </div>

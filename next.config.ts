@@ -11,21 +11,14 @@ const nextConfig: NextConfig = {
   // Allow access to remote image placeholder.
   images: {
     remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'picsum.photos',
-        port: '',
-        pathname: '/**',
-      },
-      {
-        protocol: 'https',
-        hostname: 'lh3.googleusercontent.com',
-        port: '',
-        pathname: '/**',
-      },
+      { protocol: 'https', hostname: 'picsum.photos', pathname: '/**' },
+      { protocol: 'https', hostname: '**.googleusercontent.com', pathname: '/**' },
+      { protocol: 'https', hostname: '**.supabase.co', pathname: '/**' },
+      { protocol: 'https', hostname: 'ui-avatars.com', pathname: '/**' },
+      { protocol: 'https', hostname: '**.vecteezy.com', pathname: '/**' },
+      { protocol: 'https', hostname: '**.unsplash.com', pathname: '/**' },
     ],
   },
-  output: 'standalone',
   transpilePackages: ['motion'],
   webpack: (config, {dev}) => {
     // HMR is disabled in AI Studio via DISABLE_HMR env var.

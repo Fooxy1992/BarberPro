@@ -17,13 +17,11 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-// Super admin email — must match NEXT_PUBLIC_SUPER_ADMIN_EMAIL or the default demo email
+// Super admin email — must match NEXT_PUBLIC_SUPER_ADMIN_EMAIL env var
 const SUPER_ADMIN_EMAIL =
   (typeof process !== 'undefined' &&
     process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL?.trim().toLowerCase()) ||
   'superadmin@barberpro.com';
-
-const SUPER_ADMIN_PASSWORD = 'SuperAdmin2026!';
 
 interface AuthOverlayProps {
   targetView: 'dashboard' | 'superadmin';
@@ -52,8 +50,15 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
   const handleDemoSignIn = async (demoRole: 'gerente' | 'barbeiro') => {
     setIsSubmitting(true);
     const demoEmail = `${demoRole}@barberpro.com`;
-    const demoPassword = 'BarberPro2026!';
+    // Demo password comes from env var — never hardcode in source
+    const demoPassword = process.env.NEXT_PUBLIC_DEMO_PASSWORD || '';
     const demoName = demoRole === 'gerente' ? 'Gerente Demo' : 'Barbeiro Demo';
+
+    if (!demoPassword) {
+      triggerToast('Demo indisponível: defina NEXT_PUBLIC_DEMO_PASSWORD no .env.');
+      setIsSubmitting(false);
+      return;
+    }
 
     try {
       const client = ensureSupabaseClient();
@@ -104,59 +109,10 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
     }
   };
 
-  // Auto-create and sign in the super admin account on-the-fly
-  const handleSuperAdminDemoSignIn = async () => {
-    setIsSubmitting(true);
-    try {
-      const client = ensureSupabaseClient();
-
-      const { data, error } = await client.auth.signInWithPassword({
-        email: SUPER_ADMIN_EMAIL,
-        password: SUPER_ADMIN_PASSWORD,
-      });
-
-      if (error) {
-        if (
-          error.message.includes('Invalid login credentials') ||
-          error.message.includes('User not found') ||
-          error.message.includes('Email not confirmed')
-        ) {
-          triggerToast('Criando conta Super Admin em tempo real...');
-
-          const { error: signUpError } = await client.auth.signUp({
-            email: SUPER_ADMIN_EMAIL,
-            password: SUPER_ADMIN_PASSWORD,
-            options: {
-              data: {
-                raw_name: 'Super Admin',
-                role: 'superadmin',
-              },
-            },
-          });
-
-          if (signUpError) throw signUpError;
-
-          const { data: retryData, error: retryError } = await client.auth.signInWithPassword({
-            email: SUPER_ADMIN_EMAIL,
-            password: SUPER_ADMIN_PASSWORD,
-          });
-
-          if (retryError) throw retryError;
-
-          triggerToast('Super Admin criado e autenticado com sucesso!');
-          onSuccess(retryData.user);
-        } else {
-          throw error;
-        }
-      } else {
-        triggerToast('Super Admin autenticado com sucesso!');
-        onSuccess(data.user);
-      }
-    } catch (err: any) {
-      triggerToast(`Falha na autenticação Super Admin: ${err.message || err}`);
-    } finally {
-      setIsSubmitting(false);
-    }
+  // Pre-fill super admin email on the login form (user must type their own password)
+  const handleSuperAdminDemoSignIn = () => {
+    setEmail(SUPER_ADMIN_EMAIL);
+    triggerToast('Email de Super Admin preenchido. Digite a sua senha para entrar.');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -245,12 +201,11 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
           </p>
         </div>
 
-        {/* Super admin hint box */}
+        {/* Super admin info box */}
         {isSuperAdminView && (
           <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-center space-y-1">
-            <p className="text-[10px] text-amber-500/80 font-bold uppercase tracking-wider">Credenciais Super Admin</p>
-            <p className="text-[11px] text-stone-300 font-mono">{SUPER_ADMIN_EMAIL}</p>
-            <p className="text-[10px] text-stone-500">Senha: {SUPER_ADMIN_PASSWORD}</p>
+            <p className="text-[10px] text-amber-500/80 font-bold uppercase tracking-wider">Acesso Restrito</p>
+            <p className="text-[11px] text-stone-400">Use as credenciais de Super Admin configuradas no sistema.</p>
           </div>
         )}
 
@@ -408,10 +363,10 @@ export function AuthOverlay({ targetView, onSuccess, onCancel, triggerToast }: A
               onClick={handleSuperAdminDemoSignIn}
               disabled={isSubmitting}
               className="w-full py-2 px-3 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 hover:border-amber-500/50 text-[10px] font-bold uppercase tracking-wider rounded-lg text-amber-400 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-              title="Entrar como Super Admin (cria conta automaticamente se não existir)"
+              title="Preencher email de Super Admin"
             >
               <Shield className="w-3.5 h-3.5 shrink-0" />
-              Demo Super Admin
+              Preencher Email Admin
             </button>
           ) : (
             /* Dashboard: gerente + barbeiro demo buttons */
